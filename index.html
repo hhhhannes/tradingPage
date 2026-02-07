@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market % Monitor</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background-color: #0d1117; color: #e6edf3; }
+        header { background: #161b22; padding: 15px; text-align: center; border-bottom: 1px solid #30363d; font-weight: bold; font-size: 1.4rem; color: #d4af37; }
+        
+        .main-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px; padding: 15px; }
+        .asset-card { background: #161b22; border-radius: 12px; border: 1px solid #30363d; overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* Einheitliche Höhe für alle Karten-Header */
+        .label { 
+            padding: 0 15px; 
+            height: 50px; /* Feste Höhe für alle Header */
+            background: #21262d; 
+            font-weight: bold; 
+            border-bottom: 1px solid #30363d; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            font-size: 0.9rem; 
+        }
+
+        .chart-container { height: 350px; width: 100%; }
+        .ta-container { height: 380px; width: 100%; border-top: 1px solid #30363d; background: #0d1117; }
+        
+        .price-info { margin-left: 10px; font-family: monospace; font-size: 1rem; color: #8b949e; }
+        .percent-tag { margin-left: 8px; font-weight: bold; }
+        
+        .threshold-input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 5px; border-radius: 4px; width: 50px; text-align: center; }
+        .threshold-input:focus { outline: none; border-color: #d4af37; }
+        
+        footer { text-align: center; padding: 15px; color: #8b949e; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+<header>MARKET DASHBOARD</header>
+
+<div class="main-grid">
+    <div class="asset-card">
+        <div class="label">
+            <div>
+                <span>GOLD</span>
+                <span id="goldPrice" class="price-info">--.--</span>
+                <span id="goldPercent" class="percent-tag">--%</span>
+            </div>
+            <label style="font-size: 0.75rem; font-weight: normal; color: #8b949e; display: flex; align-items: center; gap: 5px;">
+                Limit: <input type="number" id="thresholdInput" class="threshold-input" value="2.0" step="0.1"> %
+            </label>
+        </div>
+        <div id="gold_chart" class="chart-container"></div>
+        <div id="gold_ta" class="ta-container"></div>
+    </div>
+
+    <div class="asset-card">
+        <div class="label">
+            <span>BITCOIN </span>
+            <div style="width: 85px;"></div> 
+        </div>
+        <div id="btc_chart" class="chart-container"></div>
+        <div id="btc_ta" class="ta-container"></div>
+    </div>
+
+    <div class="asset-card">
+        <div class="label">
+            <span>EURO / CHF </span>
+            <div style="width: 85px;"></div>
+        </div>
+        <div id="eurchf_chart" class="chart-container"></div>
+        <div id="eurchf_ta" class="ta-container"></div>
+    </div>
+</div>
+
+<footer>Live Daten via Twelve Data & TradingView | Stand 2026</footer>
+
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script>
+    const assets = [
+        { id: "gold_chart", ta: "gold_ta", sym: "TVC:GOLD" },
+        { id: "btc_chart", ta: "btc_ta", sym: "BINANCE:BTCUSD" },
+        { id: "eurchf_chart", ta: "eurchf_ta", sym: "FX_IDC:EURCHF" }
+    ];
+
+    assets.forEach(asset => {
+        new TradingView.widget({
+            "container_id": asset.id, "autosize": true, "symbol": asset.sym,
+            "interval": "15", "theme": "dark", "style": "3", "locale": "de",
+            "studies": [], "disabled_features": ["volume_force_overlay", "create_volume_indicator_by_default"]
+        });
+
+        const taScript = document.createElement('script');
+        taScript.src = "https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js";
+        taScript.async = true;
+        taScript.innerHTML = JSON.stringify({
+            "interval": "4h", "width": "100%", "isTransparent": true, "height": "100%",
+            "symbol": asset.sym, "showIntervalTabs": true, "displayMode": "single", "locale": "de", "colorTheme": "dark"
+        });
+        document.getElementById(asset.ta).appendChild(taScript);
+    });
+
+    let lastChangePercent = 0;
+    let blinkInterval = null;
+    const API_KEY = 'b1155d2ca1304357863d8d932cbd9c34';
+
+    async function updateGoldData() {
+        try {
+            const response = await fetch(`https://api.twelvedata.com/quote?symbol=XAU/USD&apikey=${API_KEY}`);
+            const data = await response.json();
+            if (data.status === "error") return;
+
+            const price = parseFloat(data.close).toFixed(2);
+            const percent = parseFloat(data.percent_change);
+            lastChangePercent = percent;
+
+            document.getElementById('goldPrice').innerText = `$${price}`;
+            const percentEl = document.getElementById('goldPercent');
+            const sign = percent >= 0 ? "+" : "";
+            percentEl.innerText = `${sign}${percent.toFixed(2)}%`;
+            percentEl.style.color = percent >= 0 ? "#22ab94" : "#f23645";
+
+            checkThreshold();
+        } catch (e) { console.error("API Fehler"); }
+    }
+
+    function checkThreshold() {
+        const threshold = parseFloat(document.getElementById('thresholdInput').value);
+        const sign = lastChangePercent >= 0 ? "+" : "";
+        if (threshold <= 0) { stopBlinking(sign, lastChangePercent); return; }
+        if (Math.abs(lastChangePercent) >= threshold) { if (!blinkInterval) startBlinking(); } 
+        else { stopBlinking(sign, lastChangePercent); }
+    }
+
+    function startBlinking() {
+        if (blinkInterval) return;
+        let show = true;
+        blinkInterval = setInterval(() => {
+            const sign = lastChangePercent >= 0 ? "+" : "";
+            const title = `XAU ${sign}${lastChangePercent.toFixed(2)}%`;
+            document.title = show ? `⚠️ ${title}` : `_ ${title}`;
+            show = !show;
+        }, 500);
+    }
+
+    function stopBlinking(sign, percent) {
+        if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
+        document.title = `XAU ${sign}${percent.toFixed(2)}%`;
+    }
+
+    const tInput = document.getElementById('thresholdInput');
+    tInput.addEventListener('input', () => {
+        localStorage.setItem('goldThreshold', tInput.value);
+        checkThreshold();
+    });
+
+    const saved = localStorage.getItem('goldThreshold');
+    if (saved) tInput.value = saved;
+
+    updateGoldData();
+    setInterval(updateGoldData, 30000);
+</script>
+</body>
+</html>
