@@ -87,17 +87,32 @@
 
     assets.forEach(asset => {
         new TradingView.widget({
-            "container_id": asset.id, "autosize": true, "symbol": asset.sym,
-            "interval": "15", "theme": "dark", "style": "3", "locale": "de",
-            "studies": [], "disabled_features": ["volume_force_overlay", "create_volume_indicator_by_default"]
+            "container_id": asset.id,
+            "autosize": true,
+            "symbol": asset.sym,
+            "interval": "15",
+            "timezone": "Europe/Berlin",
+            "theme": "dark",
+            "style": "3",
+            "locale": "de",
+            "studies": [],
+            "disabled_features": ["volume_force_overlay", "create_volume_indicator_by_default"]
         });
 
         const taScript = document.createElement('script');
         taScript.src = "https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js";
         taScript.async = true;
         taScript.innerHTML = JSON.stringify({
-            "interval": "4h", "width": "100%", "isTransparent": true, "height": "100%",
-            "symbol": asset.sym, "showIntervalTabs": true, "displayMode": "single", "locale": "de", "colorTheme": "dark"
+            "interval": "4h",
+            "width": "100%",
+            "isTransparent": true,
+            "height": "100%",
+            "symbol": asset.sym,
+            "showIntervalTabs": true,
+            "displayMode": "single",
+            "locale": "de",
+            "timezone": "Europe/Berlin",
+            "colorTheme": "dark"
         });
         document.getElementById(asset.ta).appendChild(taScript);
     });
