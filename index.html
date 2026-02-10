@@ -225,7 +225,7 @@
             const threshold = parseFloat(document.getElementById('thresholdInput').value);
             const sign = lastChangePercent >= 0 ? "+" : "";
             if (threshold <= 0) { stopBlinking(sign, lastChangePercent); return; }
-            if (Math.abs(lastChangePercent) >= threshold) { if (!blinkInterval) startBlinking(); }
+            if (lastChangePercent >= threshold) { if (!blinkInterval) startBlinking(); }
             else { stopBlinking(sign, lastChangePercent); }
         }
 
