@@ -10,7 +10,7 @@
             font-family: 'Segoe UI', sans-serif;
             margin: 0;
             background-color: #0d1117;
-            color: #e6edf3;
+            color: #fafafa;
         }
 
         header {
@@ -20,7 +20,7 @@
             border-bottom: 1px solid #30363d;
             font-weight: bold;
             font-size: 1.4rem;
-            color: #d4af37;
+            color: #fafafa;
         }
 
         .main-grid {
@@ -80,7 +80,7 @@
         .threshold-input {
             background: #0d1117;
             border: 1px solid #30363d;
-            color: #e6edf3;
+            color: #fafafa;
             padding: 5px;
             border-radius: 4px;
             width: 50px;
@@ -97,6 +97,64 @@
             padding: 15px;
             color: #8b949e;
             font-size: 0.8rem;
+        }
+
+        footer a {
+            color: #fafafa;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+            margin-left: 8px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #30363d;
+            transition: .3s;
+            border-radius: 20px;
+            border: 1px solid #30363d;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: #8b949e;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .toggle-slider {
+            background-color: #fafafa;
+            border-color: #fafafa;
+        }
+
+        input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+            background-color: #0d1117;
         }
     </style>
 </head>
@@ -116,6 +174,13 @@
                 <label
                     style="font-size: 0.75rem; font-weight: normal; color: #8b949e; display: flex; align-items: center; gap: 5px;">
                     Limit: <input type="number" id="thresholdInput" class="threshold-input" value="2.0" step="0.1"> %
+                </label>
+                <label style="font-size: 0.75rem; font-weight: normal; color: #8b949e; display: flex; align-items: center; gap: 5px;">
+                    Check below:
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="checkBelowToggle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
                 </label>
             </div>
             <div id="gold_chart" class="chart-container"></div>
@@ -141,7 +206,7 @@
         </div>
     </div>
 
-    <footer>Live Daten via Twelve Data & TradingView | Stand 2026</footer>
+    <footer>Stand 2026 | <a href="https://pythonapp-yc8jxlaafamp4jv3afcoyx.streamlit.app/">Gold Intelligence Terminal</a></footer>
 
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <script>
@@ -223,9 +288,10 @@
 
         function checkThreshold() {
             const threshold = parseFloat(document.getElementById('thresholdInput').value);
+            const checkBelow = document.getElementById('checkBelowToggle').checked;
             const sign = lastChangePercent >= 0 ? "+" : "";
-            if (threshold <= 0) { stopBlinking(sign, lastChangePercent); return; }
-            if (lastChangePercent >= threshold) { if (!blinkInterval) startBlinking(); }
+            if (threshold == 0) { stopBlinking(sign, lastChangePercent); return; }
+            if ((lastChangePercent >= threshold && !checkBelow) || (lastChangePercent <= threshold && checkBelow)) { if (!blinkInterval) startBlinking(); }
             else { stopBlinking(sign, lastChangePercent); }
         }
 
@@ -251,8 +317,17 @@
             checkThreshold();
         });
 
+        const checkBelowToggle = document.getElementById('checkBelowToggle');
+        checkBelowToggle.addEventListener('change', () => {
+            localStorage.setItem('checkBelow', checkBelowToggle.checked);
+            checkThreshold();
+        });
+
         const saved = localStorage.getItem('goldThreshold');
         if (saved) tInput.value = saved;
+        
+        const savedBlinkState = localStorage.getItem('checkBelow');
+        if (savedBlinkState !== null) checkBelowToggle.checked = savedBlinkState === 'true';
 
         updateGoldData();
         setInterval(updateGoldData, 60000);
