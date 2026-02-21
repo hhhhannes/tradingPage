@@ -1,0 +1,8 @@
+streamlit
+requests
+pandas
+beautifulsoup4
+feedparser
+google-genai
+yfinance>=0.2.50
+websockets>=13.0,<15.0
