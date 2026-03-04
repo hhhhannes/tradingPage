@@ -172,6 +172,7 @@ if st.button("🚀 Markt-Analyse starten", use_container_width=True):
         - Kurze Zusammenfassung der aktuellen Marktstimmung.
         - Eine Tabelle der wichtigsten Einflussfaktoren mit Sentiment und Gewichtung.
         - Prognose-Fazit:
+        * Im Moment Gold  kaufen, verkaufen oder nichts unternehemn ? 
         * 1 Tag: [Richtung + Begründung]
         * 1 Woche: [Richtung + Begründung]
         * 3 Wochen: [Richtung + Begründung]
