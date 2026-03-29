@@ -117,7 +117,7 @@ def get_course_data():
     # Ticker abrufen
     tickers = ["GC=F", "DX-Y.NYB", "^VIX"]
     # Wir nehmen 5 Tage mit 1h Intervall
-    data = yf.download(tickers, period="5d", interval="1h", group_by='ticker')
+    data = yf.download(tickers, period="10d", interval="1h", group_by='ticker')
 
     df = pd.DataFrame()
 
@@ -134,6 +134,10 @@ def get_course_data():
     # Nur Zeilen behalten, wo wir für alle drei Ticker Daten haben
     df.dropna(inplace=True)
     df_rounded = df.round(3)
+
+    if df.empty:
+        raise ValueError("error: no course data")
+    
     return df_rounded
 
 
