@@ -128,8 +128,9 @@ def get_course_data():
     df['VIX'] = data['^VIX']['Close'].ffill()
 
     # Wichtige KI-Features berechnen
-    df['Gold_Ret_%'] = df['Gold'].pct_change() * 100
-    df['VIX_Change'] = df['VIX'].diff()
+    df['Gold_%'] = df['Gold'].pct_change() * 100
+    df['USD_Index_%'] = df['USD_Index'].pct_change() * 100
+    df['VIX_%'] = df['VIX'].pct_change() * 100
 
     # Nur Zeilen behalten, wo wir für alle drei Ticker Daten haben
     df.dropna(inplace=True)
