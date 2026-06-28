@@ -140,10 +140,123 @@ def compute_indicators(df):
 
     return df
 
+# ── Helper: Fundamental Scoring ───────────────────────────────────────────────
+# Benchmarks per sector/asset type
+PE_BENCHMARKS  = {"NVDA": 40, "AAPL": 28, "MSFT": 32, "AMZN": 45, "BW": 20, "default": 25}
+PB_BENCHMARKS  = {"NVDA": 20, "AAPL": 40, "MSFT": 12, "BW": 2,    "default": 5}
+
+def score_fundamentals(info, ticker):
+    """Returns (fund_score -30..+30, fund_reasons, fund_details)"""
+    fscore  = 0
+    freasons = []
+    fdetails = {}
+
+    # ─ KGV (P/E) ─────────────────────────────────────────────────────────────
+    pe = info.get("trailingPE") or info.get("forwardPE")
+    if pe and pe > 0:
+        benchmark_pe = PE_BENCHMARKS.get(ticker, PE_BENCHMARKS["default"])
+        fdetails["KGV (P/E)"] = f"{pe:.1f} (Bench: {benchmark_pe})"
+        if pe < benchmark_pe * 0.7:
+            fscore += 12; freasons.append(f"KGV {pe:.1f} deutlich unter Benchmark ({benchmark_pe}) → günstig bewertet")
+        elif pe < benchmark_pe:
+            fscore += 6;  freasons.append(f"KGV {pe:.1f} unter Benchmark ({benchmark_pe}) → fair bewertet")
+        elif pe > benchmark_pe * 2:
+            fscore -= 12; freasons.append(f"KGV {pe:.1f} stark überteuert (Bench: {benchmark_pe})")
+        elif pe > benchmark_pe * 1.3:
+            fscore -= 6;  freasons.append(f"KGV {pe:.1f} leicht überteuert (Bench: {benchmark_pe})")
+
+    # ─ KBV (P/B) ─────────────────────────────────────────────────────────────
+    pb = info.get("priceToBook")
+    if pb and pb > 0:
+        benchmark_pb = PB_BENCHMARKS.get(ticker, PB_BENCHMARKS["default"])
+        fdetails["KBV (P/B)"] = f"{pb:.2f} (Bench: {benchmark_pb})"
+        if pb < 1.0:
+            fscore += 8;  freasons.append(f"KBV {pb:.2f} unter Buchwert → potentiell unterbewertet")
+        elif pb < benchmark_pb:
+            fscore += 4;  freasons.append(f"KBV {pb:.2f} unter Benchmark ({benchmark_pb})")
+        elif pb > benchmark_pb * 2:
+            fscore -= 8;  freasons.append(f"KBV {pb:.2f} deutlich über Benchmark → teuer")
+
+    # ─ PEG-Ratio ─────────────────────────────────────────────────────────────
+    peg = info.get("pegRatio")
+    if peg and peg > 0:
+        fdetails["PEG"] = f"{peg:.2f}"
+        if peg < 1.0:
+            fscore += 8;  freasons.append(f"PEG {peg:.2f} < 1 → Wachstum relativ günstig")
+        elif peg < 2.0:
+            fscore += 3;  freasons.append(f"PEG {peg:.2f} akzeptabel")
+        else:
+            fscore -= 5;  freasons.append(f"PEG {peg:.2f} > 2 → Wachstum teuer eingepreist")
+
+    # ─ Gewinnmarge ───────────────────────────────────────────────────────────
+    margin = info.get("profitMargins")
+    if margin:
+        fdetails["Nettomarge"] = f"{margin*100:.1f}%"
+        if margin > 0.20:
+            fscore += 6;  freasons.append(f"Hohe Nettomarge {margin*100:.1f}% → starkes Geschäftsmodell")
+        elif margin < 0:
+            fscore -= 8;  freasons.append(f"Negative Marge {margin*100:.1f}% → Verlustunternehmen")
+
+    # ─ Umsatzwachstum ────────────────────────────────────────────────────────
+    rev_growth = info.get("revenueGrowth")
+    if rev_growth is not None:
+        fdetails["Umsatzwachstum"] = f"{rev_growth*100:+.1f}%"
+        if rev_growth > 0.20:
+            fscore += 6;  freasons.append(f"Starkes Umsatzwachstum {rev_growth*100:.1f}%")
+        elif rev_growth > 0.05:
+            fscore += 3;  freasons.append(f"Moderates Umsatzwachstum {rev_growth*100:.1f}%")
+        elif rev_growth < 0:
+            fscore -= 6;  freasons.append(f"Umsatzrückgang {rev_growth*100:.1f}%")
+
+    # ─ Schulden/Eigenkapital ─────────────────────────────────────────────────
+    de = info.get("debtToEquity")
+    if de is not None:
+        fdetails["Verschuldung (D/E)"] = f"{de:.1f}%"
+        if de < 50:
+            fscore += 4;  freasons.append(f"Niedrige Verschuldung D/E {de:.1f}%")
+        elif de > 200:
+            fscore -= 6;  freasons.append(f"Hohe Verschuldung D/E {de:.1f}%")
+
+    # ─ Dividendenrendite ─────────────────────────────────────────────────────
+    div = info.get("dividendYield")
+    if div and div > 0:
+        fdetails["Dividende"] = f"{div*100:.2f}%"
+        if div > 0.03:
+            fscore += 3;  freasons.append(f"Attraktive Dividendenrendite {div*100:.2f}%")
+
+    fscore = max(-30, min(30, fscore))
+    return fscore, freasons, fdetails
+
+# ── Über-/Unterverkauft Bewertung ─────────────────────────────────────────────
+def get_valuation_label(rsi, bb_pct, pct_from_high, score):
+    """Returns (label, color, description)"""
+    ob_signals = 0
+    os_signals = 0
+
+    if rsi > 70: ob_signals += 2
+    elif rsi > 60: ob_signals += 1
+    if rsi < 30: os_signals += 2
+    elif rsi < 40: os_signals += 1
+
+    if bb_pct > 0.85: ob_signals += 2
+    elif bb_pct > 0.70: ob_signals += 1
+    if bb_pct < 0.15: os_signals += 2
+    elif bb_pct < 0.30: os_signals += 1
+
+    if pct_from_high > -5: ob_signals += 1
+    if pct_from_high < -30: os_signals += 2
+    elif pct_from_high < -15: os_signals += 1
+
+    if   ob_signals >= 4: return "🔴 Stark überkauft",    "#ff4444", "Mehrere Indikatoren zeigen extreme Überhitzung. Rücksetzer wahrscheinlich."
+    elif ob_signals >= 2: return "🟠 Leicht überkauft",   "#ff8800", "Kurs an oberem Bereich. Vorsicht bei Neueinstiegen."
+    elif os_signals >= 4: return "🟢 Stark überverkauft", "#00d084", "Kurs deutlich unter fairen Wert gedrückt. Rebound-Potenzial hoch."
+    elif os_signals >= 2: return "🟡 Leicht überverkauft","#aacc00", "Kurs leicht unterbewertet. Einstiegsgelegenheit möglich."
+    else:                 return "⚪ Neutral bewertet",   "#aaaaaa", "Kurs im fairen Bereich. Kein extremes Signal."
+
 # ── Helper: Signal Engine ─────────────────────────────────────────────────────
-def generate_signal(df, ticker):
+def generate_signal(df, ticker, info=None):
     if df is None or len(df) < 50:
-        return "HALTEN", 50, {}
+        return "HALTEN", 50, {}, [], "⚪ Neutral bewertet", "#aaaaaa", "", {}, []
 
     df   = compute_indicators(df.copy())
     last = df.iloc[-1]
@@ -209,10 +322,20 @@ def generate_signal(df, ticker):
     high52 = float(close_series.rolling(252).max().iloc[-1]) if len(df) >= 252 else float(close_series.max())
     low52  = float(close_series.rolling(252).min().iloc[-1]) if len(df) >= 252 else float(close_series.min())
     pct_from_high = (close_val - high52) / high52 * 100
-    pct_from_low  = (close_val - low52)  / low52  * 100
     details["52W_High"]      = round(high52, 2)
     details["52W_Low"]       = round(low52, 2)
     details["% v. 52W_High"] = round(pct_from_high, 1)
+
+    # ─ Fundamentaldaten in Score einbeziehen ─────────────────────────────────
+    fund_score = 0
+    fund_reasons = []
+    fund_details = {}
+    if info:
+        fund_score, fund_reasons, fund_details = score_fundamentals(info, ticker)
+        score += fund_score
+
+    # ─ Über-/Unterverkauft Label ─────────────────────────────────────────────
+    val_label, val_color, val_desc = get_valuation_label(rsi, bb_pct, pct_from_high, score)
 
     # ─ Clamp & decide ────────────────────────────────────────────────────────
     score = max(0, min(100, score))
@@ -224,7 +347,7 @@ def generate_signal(df, ticker):
     else:
         signal = "HALTEN"
 
-    return signal, score, details, reasons
+    return signal, score, details, reasons, val_label, val_color, val_desc, fund_details, fund_reasons
 
 # ── Data Fetch ────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=900)
@@ -318,20 +441,24 @@ def render_asset(name, ticker):
         st.warning(f"Keine Daten für {ticker} verfügbar.")
         return
 
+    # Fundamentals for stocks only
+    info = {}
+    if ticker not in ["SLV", "GLD", "URTH", "SPY", "BTC-USD"]:
+        info = fetch_info(ticker)
+
     df = compute_indicators(df.copy())
     close_series = df["Close"].squeeze()
-    signal, score, details, reasons = generate_signal(df, ticker)
-
-    # ── Signal Badge ──────────────────────────────────────────────────────────
-    badge_class = {"KAUFEN": "buy", "HALTEN": "hold", "VERKAUFEN": "sell"}[signal]
-    emoji       = {"KAUFEN": "🟢", "HALTEN": "🟡", "VERKAUFEN": "🔴"}[signal]
-
-    col_sig, col_score, col_price, col_chg, col_vol = st.columns(5)
+    signal, score, details, reasons, val_label, val_color, val_desc, fund_details, fund_reasons = generate_signal(df, ticker, info)
 
     current_price = float(close_series.iloc[-1])
     prev_price    = float(close_series.iloc[-2]) if len(close_series) > 1 else current_price
     change_pct    = (current_price - prev_price) / prev_price * 100
 
+    badge_class = {"KAUFEN": "buy", "HALTEN": "hold", "VERKAUFEN": "sell"}[signal]
+    emoji       = {"KAUFEN": "🟢", "HALTEN": "🟡", "VERKAUFEN": "🔴"}[signal]
+
+    # ── Top Row ───────────────────────────────────────────────────────────────
+    col_sig, col_score, col_val, col_price, col_chg = st.columns(5)
     with col_sig:
         st.markdown(f"""
         <div class='metric-card {badge_class}-card'>
@@ -344,6 +471,12 @@ def render_asset(name, ticker):
         <div class='metric-card'>
             <div style='color:#aaa;font-size:.8rem'>SCORE</div>
             <div style='font-size:2rem;font-weight:700;color:{color}'>{score}<span style='font-size:1rem'>/100</span></div>
+        </div>""", unsafe_allow_html=True)
+    with col_val:
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div style='color:#aaa;font-size:.8rem'>BEWERTUNG</div>
+            <div style='font-size:.95rem;font-weight:700;color:{val_color};margin-top:4px'>{val_label}</div>
         </div>""", unsafe_allow_html=True)
     with col_price:
         st.markdown(f"""
@@ -359,25 +492,31 @@ def render_asset(name, ticker):
             <div style='color:#aaa;font-size:.8rem'>TAGESVERÄND.</div>
             <div style='font-size:1.8rem;font-weight:700;color:{chg_color}'>{chg_arrow} {change_pct:+.2f}%</div>
         </div>""", unsafe_allow_html=True)
-    with col_vol:
-        vol_val = df["Volume"].squeeze().iloc[-1] if "Volume" in df.columns else 0
-        vol_str = f"{vol_val/1e6:.1f}M" if vol_val > 1e6 else str(int(vol_val))
-        st.markdown(f"""
-        <div class='metric-card'>
-            <div style='color:#aaa;font-size:.8rem'>VOLUMEN</div>
-            <div style='font-size:1.8rem;font-weight:700;color:#4a9eff'>{vol_str}</div>
-        </div>""", unsafe_allow_html=True)
 
-    # ── Signal Reasons ────────────────────────────────────────────────────────
-    if reasons:
-        with st.expander("🔍 Signalbegründung anzeigen"):
-            for r in reasons:
-                icon = "🟢" if any(w in r for w in ["bullisch", "überverkauft", "Golden", "Aufwärts", "Rebound"]) else "🔴"
-                st.markdown(f"{icon} {r}")
+    # ── Bewertungs-Banner ─────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style='background:#1e2130;border-radius:10px;padding:12px 18px;margin:10px 0 6px 0;border-left:4px solid {val_color}'>
+        <b style='color:{val_color}'>{val_label}</b> &nbsp;—&nbsp;
+        <span style='color:#ccc'>{val_desc}</span>
+    </div>""", unsafe_allow_html=True)
 
-    # ── Score Gauge ───────────────────────────────────────────────────────────
+    # ── Expanders: Signalbegründungen ─────────────────────────────────────────
+    col_exp1, col_exp2 = st.columns(2)
+    with col_exp1:
+        if reasons:
+            with st.expander("📐 Technische Signalbegründung"):
+                for r in reasons:
+                    icon = "🟢" if any(w in r for w in ["bullisch","überverkauft","Golden","Aufwärts","Rebound","über"]) else "🔴"
+                    st.markdown(f"{icon} {r}")
+    with col_exp2:
+        if fund_reasons:
+            with st.expander("📊 Fundamentale Signalbegründung"):
+                for r in fund_reasons:
+                    icon = "🟢" if any(w in r for w in ["günstig","fair","stark","attraktiv","niedrig","Wachstum"]) else "🔴"
+                    st.markdown(f"{icon} {r}")
+
+    # ── Gauge + Chart ─────────────────────────────────────────────────────────
     col_chart, col_gauge = st.columns([2.5, 1])
-
     with col_gauge:
         fig_g = go.Figure(go.Indicator(
             mode="gauge+number",
@@ -396,89 +535,156 @@ def render_asset(name, ticker):
                 "threshold": {"line": {"color": "white", "width": 3}, "thickness": 0.8, "value": score}
             }
         ))
-        fig_g.update_layout(
-            paper_bgcolor="#0e1117", font_color="white",
-            height=220, margin=dict(t=40, b=0, l=20, r=20)
-        )
+        fig_g.update_layout(paper_bgcolor="#0e1117", font_color="white",
+                            height=220, margin=dict(t=40, b=0, l=20, r=20))
         st.plotly_chart(fig_g, use_container_width=True, key=f"gauge_{ticker}")
 
-    # ── Price Chart ───────────────────────────────────────────────────────────
     with col_chart:
-        fig = make_subplots(
-            rows=3, cols=1, shared_xaxes=True,
-            row_heights=[0.55, 0.25, 0.2],
-            vertical_spacing=0.04
-        )
-
-        # Candlestick
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
+                            row_heights=[0.55, 0.25, 0.2], vertical_spacing=0.04)
         fig.add_trace(go.Candlestick(
-            x=df.index,
-            open=df["Open"].squeeze(), high=df["High"].squeeze(),
-            low=df["Low"].squeeze(),  close=close_series,
-            increasing_line_color="#00d084", decreasing_line_color="#ff4444",
-            name="Kurs"
+            x=df.index, open=df["Open"].squeeze(), high=df["High"].squeeze(),
+            low=df["Low"].squeeze(), close=close_series,
+            increasing_line_color="#00d084", decreasing_line_color="#ff4444", name="Kurs"
         ), row=1, col=1)
-
-        # Bollinger Bands
-        for col_n, color, dash, label in [
-            ("BB_upper", "#4a9eff", "dot", "BB Oben"),
-            ("BB_mid",   "#ffa500", "dash", "SMA20"),
-            ("BB_lower", "#4a9eff", "dot", "BB Unten"),
+        for col_n, clr, dash, lbl in [
+            ("BB_upper","#4a9eff","dot","BB Oben"),
+            ("BB_mid","#ffa500","dash","SMA20"),
+            ("BB_lower","#4a9eff","dot","BB Unten"),
         ]:
-            fig.add_trace(go.Scatter(
-                x=df.index, y=df[col_n],
-                line=dict(color=color, width=1, dash=dash),
-                name=label, opacity=0.7
-            ), row=1, col=1)
-
-        # SMA50 & SMA200
+            fig.add_trace(go.Scatter(x=df.index, y=df[col_n],
+                line=dict(color=clr, width=1, dash=dash), name=lbl, opacity=0.7), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA50"],  line=dict(color="#ff9900", width=1.5), name="SMA50"),  row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], line=dict(color="#cc44ff", width=1.5), name="SMA200"), row=1, col=1)
-
-        # MACD
         colors_hist = ["#00d084" if v >= 0 else "#ff4444" for v in df["MACD_hist"]]
-        fig.add_trace(go.Bar(    x=df.index, y=df["MACD_hist"],  marker_color=colors_hist, name="MACD Hist", opacity=0.7), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],       line=dict(color="#4a9eff", width=1.5), name="MACD"),       row=2, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"],line=dict(color="#ffa500", width=1.5), name="Signal"),     row=2, col=1)
-
-        # RSI
+        fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], marker_color=colors_hist, name="MACD Hist", opacity=0.7), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        line=dict(color="#4a9eff", width=1.5), name="MACD"),   row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], line=dict(color="#ffa500", width=1.5), name="Signal"), row=2, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI"], line=dict(color="#cc44ff", width=2), name="RSI"), row=3, col=1)
         fig.add_hline(y=70, line_dash="dot", line_color="#ff4444", opacity=0.5, row=3, col=1)
         fig.add_hline(y=30, line_dash="dot", line_color="#00d084", opacity=0.5, row=3, col=1)
-
-        fig.update_layout(
-            paper_bgcolor="#0e1117", plot_bgcolor="#1e2130",
-            font_color="white", height=520,
-            xaxis_rangeslider_visible=False,
-            legend=dict(orientation="h", y=1.02, font_size=11),
-            margin=dict(t=20, b=10, l=10, r=10)
-        )
+        fig.update_layout(paper_bgcolor="#0e1117", plot_bgcolor="#1e2130",
+                          font_color="white", height=520, xaxis_rangeslider_visible=False,
+                          legend=dict(orientation="h", y=1.02, font_size=11),
+                          margin=dict(t=20, b=10, l=10, r=10))
         fig.update_yaxes(gridcolor="#2a2d3e", zerolinecolor="#2a2d3e")
         fig.update_xaxes(gridcolor="#2a2d3e")
         st.plotly_chart(fig, use_container_width=True, key=f"price_{ticker}")
 
-    # ── Kennzahlen ────────────────────────────────────────────────────────────
+    # ── Technische Kennzahlen ─────────────────────────────────────────────────
     st.markdown("#### 📐 Technische Kennzahlen")
+    with st.expander("ℹ️ Wie werden die technischen Kennzahlen berechnet?"):
+        st.markdown("""
+| Kennzahl | Berechnung | Interpretation |
+|----------|-----------|----------------|
+| **RSI** | Relative Strength Index über 14 Tage. Verhältnis von durchschnittlichen Kursgewinnen zu -verlusten. | < 30 = überverkauft (Kaufsignal) · > 70 = überkauft (Verkaufssignal) |
+| **MACD** | Differenz aus 12-Tage-EMA und 26-Tage-EMA. Signal-Linie = 9-Tage-EMA des MACD. | MACD > Signal = bullisch · MACD < Signal = bearisch |
+| **SMA20/50/200** | Einfacher gleitender Durchschnitt über 20, 50 bzw. 200 Handelstage. | Kurs über allen drei = starker Aufwärtstrend (Golden Trend) |
+| **BB%** | Position des Kurses innerhalb der Bollinger Bänder (±2 Standardabweichungen vom SMA20). | 0% = unteres Band (überverkauft) · 100% = oberes Band (überkauft) |
+| **Vol_ratio** | Heutiges Volumen ÷ 20-Tage-Durchschnittsvolumen. | > 1.5 bei steigendem Kurs = starkes Kaufsignal (Bestätigung) |
+| **52W High/Low** | Höchst- und Tiefstkurs der letzten 252 Handelstage (~1 Jahr). | % vom 52W-Hoch zeigt wie weit der Kurs vom Jahreshoch entfernt ist |
+| **Bull/Bear Score** | Gewichtete Summe aller technischen + fundamentalen Signale (0–100). | ≥ 62 = Kaufen · 41–61 = Halten · ≤ 40 = Verkaufen |
+        """)
+
+    with st.expander("🧮 Wie genau wird der Bull/Bear Score berechnet?"):
+        st.markdown("""
+**Startpunkt: 50 Punkte** (neutral). Jeder Indikator addiert oder subtrahiert Punkte:
+
+| Indikator | Bedingung | Punkte |
+|-----------|-----------|--------|
+| **RSI** | < 30 (überverkauft) | **+20** |
+| **RSI** | 30–45 (leicht tief) | **+10** |
+| **RSI** | 60–75 (leicht hoch) | **−8** |
+| **RSI** | > 75 (überkauft) | **−20** |
+| **MACD** | MACD > Signal & Histogramm > 0 | **+15** |
+| **MACD** | MACD < Signal & Histogramm < 0 | **−15** |
+| **Trend** | Kurs > SMA20 > SMA50 > SMA200 | **+15** |
+| **Trend** | Kurs > SMA50 | **+8** |
+| **Trend** | Kurs < SMA200 | **−12** |
+| **Bollinger** | Kurs nahe unterem Band (BB% < 10%) | **+12** |
+| **Bollinger** | Kurs nahe oberem Band (BB% > 90%) | **−10** |
+| **Volumen** | Volumen > 1.5× Schnitt bei steigendem Kurs | **+5** |
+| **Fundamental** | KGV, KBV, PEG, Marge, Wachstum … | **−30 bis +30** |
+
+**Endergebnis wird auf 0–100 begrenzt:**
+- 🟢 **≥ 62** → KAUFEN
+- 🟡 **41–61** → HALTEN  
+- 🔴 **≤ 40** → VERKAUFEN
+        """)
+
+    with st.expander("📊 Wie wird Über-/Unterverkauft berechnet?"):
+        st.markdown("""
+Die Bewertung kombiniert **3 unabhängige Signalquellen** zu einem Gesamturteil.
+Jede Quelle kann 1 oder 2 Punkte für "überkauft" (OB) oder "überverkauft" (OS) liefern:
+
+| Signal | Bedingung | Wertung |
+|--------|-----------|---------|
+| **RSI > 70** | Stark überkauft | +2 OB-Punkte |
+| **RSI 60–70** | Leicht überkauft | +1 OB-Punkt |
+| **RSI < 30** | Stark überverkauft | +2 OS-Punkte |
+| **RSI 30–40** | Leicht überverkauft | +1 OS-Punkt |
+| **BB% > 85%** | Kurs nahe oberem Bollinger Band | +2 OB-Punkte |
+| **BB% 70–85%** | Kurs erhöht | +1 OB-Punkt |
+| **BB% < 15%** | Kurs nahe unterem Bollinger Band | +2 OS-Punkte |
+| **BB% 15–30%** | Kurs gedrückt | +1 OS-Punkt |
+| **< 5% unter 52W-Hoch** | Nahe Jahreshoch | +1 OB-Punkt |
+| **> 30% unter 52W-Hoch** | Weit vom Jahreshoch | +2 OS-Punkte |
+| **15–30% unter 52W-Hoch** | Deutlich korrigiert | +1 OS-Punkt |
+
+**Auswertung der Gesamtpunkte:**
+
+| OB-Punkte | OS-Punkte | Urteil |
+|-----------|-----------|--------|
+| ≥ 4 | – | 🔴 Stark überkauft |
+| ≥ 2 | – | 🟠 Leicht überkauft |
+| – | ≥ 4 | 🟢 Stark überverkauft |
+| – | ≥ 2 | 🟡 Leicht überverkauft |
+| < 2 | < 2 | ⚪ Neutral bewertet |
+
+> **Hinweis:** Überverkauft bedeutet nicht zwingend sofortiger Kursanstieg – es zeigt, dass der Kurs im Vergleich zu seiner jüngsten Entwicklung ungewöhnlich tief ist und statistisch zur Mitte tendiert.
+        """)
     kz_cols = st.columns(len(details))
     for i, (k, v) in enumerate(details.items()):
         with kz_cols[i % len(kz_cols)]:
             st.metric(k, v)
 
     # ── Fundamentaldaten ──────────────────────────────────────────────────────
-    if ticker not in ["SLV", "GLD", "URTH", "SPY", "BTC-USD"]:
-        info = fetch_info(ticker)
-        fund = {
-            "Marktkapitalisierung": f"${info.get('marketCap', 0)/1e9:.1f}B" if info.get("marketCap") else "–",
-            "KGV (P/E)":            f"{info.get('trailingPE', 0):.1f}" if info.get("trailingPE") else "–",
-            "KBV (P/B)":            f"{info.get('priceToBook', 0):.2f}" if info.get("priceToBook") else "–",
-            "EPS (TTM)":            f"${info.get('trailingEps', 0):.2f}" if info.get("trailingEps") else "–",
-            "Dividendenrendite":    f"{info.get('dividendYield', 0)*100:.2f}%" if info.get("dividendYield") else "0%",
-            "Beta":                 f"{info.get('beta', 0):.2f}" if info.get("beta") else "–",
-        }
+    if info:
         st.markdown("#### 📊 Fundamentaldaten")
-        f_cols = st.columns(len(fund))
-        for i, (k, v) in enumerate(fund.items()):
-            with f_cols[i]:
+        with st.expander("ℹ️ Wie werden die Fundamentaldaten berechnet?"):
+            st.markdown("""
+| Kennzahl | Berechnung | Interpretation |
+|----------|-----------|----------------|
+| **KGV (P/E)** | Aktienkurs ÷ Gewinn je Aktie (letzte 12 Monate). | < Sektorbenchmark = günstig · > 2× Benchmark = teuer |
+| **Fwd. KGV** | Kurs ÷ erwarteter Gewinn je Aktie (nächste 12 Monate). | Zeigt ob Wachstum bereits eingepreist ist |
+| **KBV (P/B)** | Kurs ÷ Buchwert je Aktie (Eigenkapital ÷ Aktienanzahl). | < 1 = unter Buchwert (potentiell unterbewertet) |
+| **PEG** | KGV ÷ jährliches Gewinnwachstum (%). | < 1 = Wachstum günstig · > 2 = Wachstum teuer eingepreist |
+| **EPS (TTM)** | Gewinn je Aktie der letzten 12 Monate (Trailing Twelve Months). | Positiv = profitabel · negativ = Verlustunternehmen |
+| **Nettomarge** | Jahresüberschuss ÷ Umsatz × 100. | > 20% = sehr starkes Geschäftsmodell |
+| **Umsatzwachstum** | (Umsatz aktuell − Umsatz Vorjahr) ÷ Umsatz Vorjahr × 100. | > 20% = starkes Wachstum · negativ = Schrumpfung |
+| **D/E Ratio** | Gesamtschulden ÷ Eigenkapital × 100. | < 50% = solide · > 200% = hoch verschuldet |
+| **Dividende** | Jährliche Dividende je Aktie ÷ Aktienkurs × 100. | Attraktiv ab ~3% – nur bei stabilen Unternehmen relevant |
+| **Beta** | Kursvolatilität relativ zum Gesamtmarkt (S&P 500). | < 1 = defensiv · > 1 = volatiler als Markt · > 2 = sehr spekulativ |
+| **Fund.-Score** | Gewichtete Summe aller Fundamental-Signale (−30 bis +30). | Wird zum technischen Score addiert · positiv = fundamental bullisch |
+            """)
+        fs, _, _ = score_fundamentals(info, ticker)
+        raw_fund = {
+            "Marktkapital.":   f"${info.get('marketCap',0)/1e9:.1f}B"        if info.get("marketCap") else "–",
+            "KGV (P/E)":       f"{info.get('trailingPE',0):.1f}"             if info.get("trailingPE") else "–",
+            "Fwd. KGV":        f"{info.get('forwardPE',0):.1f}"              if info.get("forwardPE") else "–",
+            "KBV (P/B)":       f"{info.get('priceToBook',0):.2f}"            if info.get("priceToBook") else "–",
+            "PEG":             f"{info.get('pegRatio',0):.2f}"               if info.get("pegRatio") else "–",
+            "EPS (TTM)":       f"${info.get('trailingEps',0):.2f}"           if info.get("trailingEps") else "–",
+            "Nettomarge":      f"{info.get('profitMargins',0)*100:.1f}%"     if info.get("profitMargins") else "–",
+            "Umsatzwachstum":  f"{info.get('revenueGrowth',0)*100:+.1f}%"   if info.get("revenueGrowth") is not None else "–",
+            "D/E Ratio":       f"{info.get('debtToEquity',0):.1f}%"         if info.get("debtToEquity") else "–",
+            "Dividende":       f"{info.get('dividendYield',0)*100:.2f}%"     if info.get("dividendYield") else "0%",
+            "Beta":            f"{info.get('beta',0):.2f}"                   if info.get("beta") else "–",
+            "Fund.-Score":     f"{fs:+d}/30",
+        }
+        f_cols = st.columns(6)
+        for i, (k, v) in enumerate(raw_fund.items()):
+            with f_cols[i % 6]:
                 st.metric(k, v)
 
 # ── Portfolio Overview ────────────────────────────────────────────────────────
@@ -494,7 +700,7 @@ def render_overview():
     for i, (name, ticker) in enumerate(assets_to_check.items()):
         progress.progress((i + 1) / total, text=f"Lade {name} …")
         df   = fetch_data(ticker, st.session_state.get("global_period", "1y"))
-        sig, score, details, _ = generate_signal(df, ticker)
+        sig, score, details, _reasons, val_label, _vc, _vd, _fd, _fr = generate_signal(df, ticker)
 
         close_series = df["Close"].squeeze() if df is not None else None
         price  = float(close_series.iloc[-1]) if close_series is not None else 0
