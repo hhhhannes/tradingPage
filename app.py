@@ -530,10 +530,11 @@ def render_overview():
             return f"color:{'#00d084' if val >= 0 else '#ff4444'}"
         return ""
 
-    styled = df_res.style \
-        .applymap(signal_color, subset=["Signal"]) \
-        .applymap(chg_color, subset=["1T (%)", "1M (%)", "3M (%)"]) \
-        .format({"Kurs ($)": "{:.2f}", "1T (%)": "{:+.2f}", "1M (%)": "{:+.2f}", "3M (%)": "{:+.2f}"})
+    _map = "map" if hasattr(df_res.style, "map") else "applymap"
+    styled = df_res.style
+    styled = getattr(styled, _map)(signal_color, subset=["Signal"])
+    styled = getattr(styled, _map)(chg_color,    subset=["1T (%)", "1M (%)", "3M (%)"])
+    styled = styled.format({"Kurs ($)": "{:.2f}", "1T (%)": "{:+.2f}", "1M (%)": "{:+.2f}", "3M (%)": "{:+.2f}"})
 
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
