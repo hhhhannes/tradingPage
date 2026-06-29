@@ -9,6 +9,66 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
+# ── Market Hours Helper ───────────────────────────────────────────────────────
+from datetime import datetime, timedelta
+import zoneinfo
+
+MARKET_INFO = {
+    # ticker → (timezone, open_h, open_m, close_h, close_m, name)
+    "NVDA":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
+    "AAPL":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
+    "MSFT":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
+    "AMZN":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
+    "SPY":     ("America/New_York", 9, 30, 16, 0,  "NYSE"),
+    "URTH":    ("America/New_York", 9, 30, 16, 0,  "NYSE"),
+    "SLV":     ("America/New_York", 9, 30, 16, 0,  "NYSE"),
+    "GLD":     ("America/New_York", 9, 30, 16, 0,  "NYSE"),
+    "BW":      ("America/New_York", 9, 30, 16, 0,  "NYSE"),
+    "BTC-USD": (None, 0, 0, 23, 59, "Krypto 24/7"),
+}
+
+def get_market_status(ticker):
+    info = MARKET_INFO.get(ticker)
+    if not info:
+        return "⚪", "Unbekannt", ""
+    tz_name, oh, om, ch, cm, market_name = info
+
+    # Crypto is always open
+    if tz_name is None:
+        return "🟢", "Geöffnet", f"{market_name}"
+
+    tz = zoneinfo.ZoneInfo(tz_name)
+    now = datetime.now(tz)
+    weekday = now.weekday()  # 0=Mon, 6=Sun
+
+    if weekday >= 5:  # Weekend
+        # Find next Monday open
+        days_until_monday = 7 - weekday
+        next_open = now.replace(hour=oh, minute=om, second=0, microsecond=0) + timedelta(days=days_until_monday)
+        local_open = next_open.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
+        return "🔴", "Geschlossen", f"{market_name} · öffnet Mo {local_open.strftime('%d.%m. %H:%M')} MEZ"
+
+    open_dt  = now.replace(hour=oh, minute=om, second=0, microsecond=0)
+    close_dt = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+
+    if open_dt <= now <= close_dt:
+        mins_left = int((close_dt - now).total_seconds() / 60)
+        h, m = divmod(mins_left, 60)
+        return "🟢", "Geöffnet", f"{market_name} · schließt in {h}h {m}m"
+    elif now < open_dt:
+        mins_until = int((open_dt - now).total_seconds() / 60)
+        h, m = divmod(mins_until, 60)
+        local_open = open_dt.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
+        return "🟡", "Vorbörslich", f"{market_name} · öffnet in {h}h {m}m ({local_open.strftime('%H:%M')} MEZ)"
+    else:
+        # After close — find next open
+        next_open = open_dt + timedelta(days=1)
+        while next_open.weekday() >= 5:
+            next_open += timedelta(days=1)
+        local_open = next_open.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
+        return "🔴", "Geschlossen", f"{market_name} · öffnet {local_open.strftime('%d.%m. %H:%M')} MEZ"
+
+
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Investment Dashboard",
@@ -350,7 +410,6 @@ def generate_signal(df, ticker, info=None):
     return signal, score, details, reasons, val_label, val_color, val_desc, fund_details, fund_reasons
 
 # ── Data Fetch ────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=900)
 def fetch_data(ticker, period="1y"):
     try:
         df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
@@ -364,7 +423,6 @@ def fetch_data(ticker, period="1y"):
     except:
         return None
 
-@st.cache_data(ttl=900)
 def fetch_info(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -430,6 +488,93 @@ def render_strategy():
     | **DCA-Strategie** | Monatlich gleiche Beträge → Durchschnittskosteneffekt |
     """)
 
+    st.markdown("---")
+    st.markdown("### 📖 Erklärungen & Berechnungsmethoden")
+
+    with st.expander("🧮 Wie wird der Bull/Bear Score berechnet?"):
+        st.markdown("""
+**Startpunkt: 50 Punkte** (neutral). Jeder Indikator addiert oder subtrahiert Punkte. Endergebnis wird auf 0–100 begrenzt.
+
+| Indikator | Bedingung | Punkte |
+|-----------|-----------|--------|
+| **RSI** | < 30 (überverkauft) | **+20** |
+| **RSI** | 30–45 (leicht tief) | **+10** |
+| **RSI** | 60–75 (leicht hoch) | **−8** |
+| **RSI** | > 75 (überkauft) | **−20** |
+| **MACD** | MACD > Signal & Histogramm > 0 | **+15** |
+| **MACD** | MACD < Signal & Histogramm < 0 | **−15** |
+| **Trend** | Kurs > SMA20 > SMA50 > SMA200 (Golden Trend) | **+15** |
+| **Trend** | Kurs > SMA50 | **+8** |
+| **Trend** | Kurs < SMA200 | **−12** |
+| **Bollinger** | Kurs nahe unterem Band (BB% < 10%) | **+12** |
+| **Bollinger** | Kurs nahe oberem Band (BB% > 90%) | **−10** |
+| **Volumen** | Volumen > 1.5× Schnitt bei steigendem Kurs | **+5** |
+| **Fundamental** | KGV, KBV, PEG, Marge, Wachstum … | **−30 bis +30** |
+
+**Entscheidung:**
+- 🟢 Score **≥ 62** → KAUFEN
+- 🟡 Score **41–61** → HALTEN
+- 🔴 Score **≤ 40** → VERKAUFEN
+        """)
+
+    with st.expander("📊 Wie wird Über-/Unterverkauft berechnet?"):
+        st.markdown("""
+3 unabhängige Quellen liefern Punkte für "überkauft" (OB) oder "überverkauft" (OS):
+
+| Signal | Bedingung | Wertung |
+|--------|-----------|---------|
+| **RSI > 70** | Stark überkauft | +2 OB |
+| **RSI 60–70** | Leicht überkauft | +1 OB |
+| **RSI < 30** | Stark überverkauft | +2 OS |
+| **RSI 30–40** | Leicht überverkauft | +1 OS |
+| **BB% > 85%** | Nahe oberem Bollinger Band | +2 OB |
+| **BB% 70–85%** | Kurs erhöht | +1 OB |
+| **BB% < 15%** | Nahe unterem Bollinger Band | +2 OS |
+| **BB% 15–30%** | Kurs gedrückt | +1 OS |
+| **< 5% unter 52W-Hoch** | Nahe Jahreshoch | +1 OB |
+| **> 30% unter 52W-Hoch** | Weit vom Jahreshoch | +2 OS |
+| **15–30% unter 52W-Hoch** | Deutlich korrigiert | +1 OS |
+
+| OB-Punkte | OS-Punkte | Urteil |
+|-----------|-----------|--------|
+| ≥ 4 | – | 🔴 Stark überkauft |
+| ≥ 2 | – | 🟠 Leicht überkauft |
+| – | ≥ 4 | 🟢 Stark überverkauft |
+| – | ≥ 2 | 🟡 Leicht überverkauft |
+| < 2 | < 2 | ⚪ Neutral bewertet |
+
+> **Hinweis:** Überverkauft ≠ sofortiger Kursanstieg. Es zeigt, dass der Kurs statistisch ungewöhnlich tief ist und zur Mitte tendiert.
+        """)
+
+    with st.expander("📐 Technische Kennzahlen erklärt"):
+        st.markdown("""
+| Kennzahl | Berechnung | Interpretation |
+|----------|-----------|----------------|
+| **RSI** | Relative Strength Index über 14 Tage. Verhältnis von Kursgewinnen zu -verlusten. | < 30 = überverkauft · > 70 = überkauft |
+| **MACD** | Differenz aus 12-Tage-EMA und 26-Tage-EMA. Signal = 9-Tage-EMA des MACD. | MACD > Signal = bullisch · darunter = bearisch |
+| **SMA20/50/200** | Einfacher gleitender Durchschnitt über 20, 50, 200 Handelstage. | Kurs über allen drei = Golden Trend |
+| **BB%** | Position des Kurses innerhalb der Bollinger Bänder (±2 Standardabweichungen). | 0% = unteres Band · 100% = oberes Band |
+| **Vol_ratio** | Heutiges Volumen ÷ 20-Tage-Durchschnittsvolumen. | > 1.5 bei steigendem Kurs = Bestätigung |
+| **52W High/Low** | Höchst-/Tiefstkurs der letzten 252 Handelstage. | Abstand vom Jahreshoch zeigt Erholungspotenzial |
+        """)
+
+    with st.expander("📊 Fundamentalkennzahlen erklärt"):
+        st.markdown("""
+| Kennzahl | Berechnung | Interpretation |
+|----------|-----------|----------------|
+| **KGV (P/E)** | Aktienkurs ÷ Gewinn je Aktie (letzte 12 Monate). | Unter Benchmark = günstig · über 2× Benchmark = teuer |
+| **Fwd. KGV** | Kurs ÷ erwarteter Gewinn (nächste 12 Monate). | Zeigt ob Wachstum bereits eingepreist ist |
+| **KBV (P/B)** | Kurs ÷ Buchwert je Aktie. | < 1 = unter Buchwert (potentiell unterbewertet) |
+| **PEG** | KGV ÷ jährliches Gewinnwachstum (%). | < 1 = Wachstum günstig · > 2 = zu teuer |
+| **EPS (TTM)** | Gewinn je Aktie der letzten 12 Monate. | Positiv = profitabel · negativ = Verlust |
+| **Nettomarge** | Jahresüberschuss ÷ Umsatz × 100. | > 20% = starkes Geschäftsmodell |
+| **Umsatzwachstum** | (Umsatz aktuell − Vorjahr) ÷ Vorjahr × 100. | > 20% = stark · negativ = Schrumpfung |
+| **D/E Ratio** | Gesamtschulden ÷ Eigenkapital × 100. | < 50% = solide · > 200% = hoch verschuldet |
+| **Dividende** | Jährliche Dividende ÷ Kurs × 100. | Attraktiv ab ~3% |
+| **Beta** | Volatilität relativ zum S&P 500. | < 1 = defensiv · > 1 = aggressiver als Markt |
+| **Fund.-Score** | Gewichtete Summe aller Fundamental-Signale (−30 bis +30). | Positiv = fundamental bullisch |
+        """)
+
 # ── Single Asset Analysis ─────────────────────────────────────────────────────
 def render_asset(name, ticker):
     st.subheader(f"📊 {name} ({ticker})")
@@ -456,6 +601,22 @@ def render_asset(name, ticker):
 
     badge_class = {"KAUFEN": "buy", "HALTEN": "hold", "VERKAUFEN": "sell"}[signal]
     emoji       = {"KAUFEN": "🟢", "HALTEN": "🟡", "VERKAUFEN": "🔴"}[signal]
+
+    # ── Yahoo Finance Link + Market Status ───────────────────────────────────
+    yahoo_url = f"https://finance.yahoo.com/quote/{ticker}"
+    mkt_icon, mkt_status, mkt_detail = get_market_status(ticker)
+    col_link, col_mkt = st.columns([1, 2])
+    with col_link:
+        st.markdown(f"🔗 [Auf Yahoo Finance öffnen]({yahoo_url})")
+    with col_mkt:
+        status_color = {"🟢": "#00d084", "🟡": "#ffa500", "🔴": "#ff4444", "⚪": "#888"}.get(mkt_icon, "#888")
+        st.markdown(
+            f"<div style='padding:4px 12px;border-radius:8px;background:#1e2130;display:inline-block;"
+            f"border-left:3px solid {status_color}'>"
+            f"<span style='color:{status_color};font-weight:700'>{mkt_icon} {mkt_status}</span>"
+            f"<span style='color:#aaa;font-size:.85rem'> &nbsp;{mkt_detail}</span></div>",
+            unsafe_allow_html=True
+        )
 
     # ── Top Row ───────────────────────────────────────────────────────────────
     col_sig, col_score, col_val, col_price, col_chg = st.columns(5)
@@ -541,7 +702,7 @@ def render_asset(name, ticker):
 
     with col_chart:
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
-                            row_heights=[0.55, 0.25, 0.2], vertical_spacing=0.04)
+                            row_heights=[0.65, 0.20, 0.15], vertical_spacing=0.03)
         fig.add_trace(go.Candlestick(
             x=df.index, open=df["Open"].squeeze(), high=df["High"].squeeze(),
             low=df["Low"].squeeze(), close=close_series,
@@ -564,7 +725,7 @@ def render_asset(name, ticker):
         fig.add_hline(y=70, line_dash="dot", line_color="#ff4444", opacity=0.5, row=3, col=1)
         fig.add_hline(y=30, line_dash="dot", line_color="#00d084", opacity=0.5, row=3, col=1)
         fig.update_layout(paper_bgcolor="#0e1117", plot_bgcolor="#1e2130",
-                          font_color="white", height=520, xaxis_rangeslider_visible=False,
+                          font_color="white", height=720, xaxis_rangeslider_visible=False,
                           legend=dict(orientation="h", y=1.02, font_size=11),
                           margin=dict(t=20, b=10, l=10, r=10))
         fig.update_yaxes(gridcolor="#2a2d3e", zerolinecolor="#2a2d3e")
@@ -573,76 +734,6 @@ def render_asset(name, ticker):
 
     # ── Technische Kennzahlen ─────────────────────────────────────────────────
     st.markdown("#### 📐 Technische Kennzahlen")
-    with st.expander("ℹ️ Wie werden die technischen Kennzahlen berechnet?"):
-        st.markdown("""
-| Kennzahl | Berechnung | Interpretation |
-|----------|-----------|----------------|
-| **RSI** | Relative Strength Index über 14 Tage. Verhältnis von durchschnittlichen Kursgewinnen zu -verlusten. | < 30 = überverkauft (Kaufsignal) · > 70 = überkauft (Verkaufssignal) |
-| **MACD** | Differenz aus 12-Tage-EMA und 26-Tage-EMA. Signal-Linie = 9-Tage-EMA des MACD. | MACD > Signal = bullisch · MACD < Signal = bearisch |
-| **SMA20/50/200** | Einfacher gleitender Durchschnitt über 20, 50 bzw. 200 Handelstage. | Kurs über allen drei = starker Aufwärtstrend (Golden Trend) |
-| **BB%** | Position des Kurses innerhalb der Bollinger Bänder (±2 Standardabweichungen vom SMA20). | 0% = unteres Band (überverkauft) · 100% = oberes Band (überkauft) |
-| **Vol_ratio** | Heutiges Volumen ÷ 20-Tage-Durchschnittsvolumen. | > 1.5 bei steigendem Kurs = starkes Kaufsignal (Bestätigung) |
-| **52W High/Low** | Höchst- und Tiefstkurs der letzten 252 Handelstage (~1 Jahr). | % vom 52W-Hoch zeigt wie weit der Kurs vom Jahreshoch entfernt ist |
-| **Bull/Bear Score** | Gewichtete Summe aller technischen + fundamentalen Signale (0–100). | ≥ 62 = Kaufen · 41–61 = Halten · ≤ 40 = Verkaufen |
-        """)
-
-    with st.expander("🧮 Wie genau wird der Bull/Bear Score berechnet?"):
-        st.markdown("""
-**Startpunkt: 50 Punkte** (neutral). Jeder Indikator addiert oder subtrahiert Punkte:
-
-| Indikator | Bedingung | Punkte |
-|-----------|-----------|--------|
-| **RSI** | < 30 (überverkauft) | **+20** |
-| **RSI** | 30–45 (leicht tief) | **+10** |
-| **RSI** | 60–75 (leicht hoch) | **−8** |
-| **RSI** | > 75 (überkauft) | **−20** |
-| **MACD** | MACD > Signal & Histogramm > 0 | **+15** |
-| **MACD** | MACD < Signal & Histogramm < 0 | **−15** |
-| **Trend** | Kurs > SMA20 > SMA50 > SMA200 | **+15** |
-| **Trend** | Kurs > SMA50 | **+8** |
-| **Trend** | Kurs < SMA200 | **−12** |
-| **Bollinger** | Kurs nahe unterem Band (BB% < 10%) | **+12** |
-| **Bollinger** | Kurs nahe oberem Band (BB% > 90%) | **−10** |
-| **Volumen** | Volumen > 1.5× Schnitt bei steigendem Kurs | **+5** |
-| **Fundamental** | KGV, KBV, PEG, Marge, Wachstum … | **−30 bis +30** |
-
-**Endergebnis wird auf 0–100 begrenzt:**
-- 🟢 **≥ 62** → KAUFEN
-- 🟡 **41–61** → HALTEN  
-- 🔴 **≤ 40** → VERKAUFEN
-        """)
-
-    with st.expander("📊 Wie wird Über-/Unterverkauft berechnet?"):
-        st.markdown("""
-Die Bewertung kombiniert **3 unabhängige Signalquellen** zu einem Gesamturteil.
-Jede Quelle kann 1 oder 2 Punkte für "überkauft" (OB) oder "überverkauft" (OS) liefern:
-
-| Signal | Bedingung | Wertung |
-|--------|-----------|---------|
-| **RSI > 70** | Stark überkauft | +2 OB-Punkte |
-| **RSI 60–70** | Leicht überkauft | +1 OB-Punkt |
-| **RSI < 30** | Stark überverkauft | +2 OS-Punkte |
-| **RSI 30–40** | Leicht überverkauft | +1 OS-Punkt |
-| **BB% > 85%** | Kurs nahe oberem Bollinger Band | +2 OB-Punkte |
-| **BB% 70–85%** | Kurs erhöht | +1 OB-Punkt |
-| **BB% < 15%** | Kurs nahe unterem Bollinger Band | +2 OS-Punkte |
-| **BB% 15–30%** | Kurs gedrückt | +1 OS-Punkt |
-| **< 5% unter 52W-Hoch** | Nahe Jahreshoch | +1 OB-Punkt |
-| **> 30% unter 52W-Hoch** | Weit vom Jahreshoch | +2 OS-Punkte |
-| **15–30% unter 52W-Hoch** | Deutlich korrigiert | +1 OS-Punkt |
-
-**Auswertung der Gesamtpunkte:**
-
-| OB-Punkte | OS-Punkte | Urteil |
-|-----------|-----------|--------|
-| ≥ 4 | – | 🔴 Stark überkauft |
-| ≥ 2 | – | 🟠 Leicht überkauft |
-| – | ≥ 4 | 🟢 Stark überverkauft |
-| – | ≥ 2 | 🟡 Leicht überverkauft |
-| < 2 | < 2 | ⚪ Neutral bewertet |
-
-> **Hinweis:** Überverkauft bedeutet nicht zwingend sofortiger Kursanstieg – es zeigt, dass der Kurs im Vergleich zu seiner jüngsten Entwicklung ungewöhnlich tief ist und statistisch zur Mitte tendiert.
-        """)
     kz_cols = st.columns(len(details))
     for i, (k, v) in enumerate(details.items()):
         with kz_cols[i % len(kz_cols)]:
@@ -651,22 +742,6 @@ Jede Quelle kann 1 oder 2 Punkte für "überkauft" (OB) oder "überverkauft" (OS
     # ── Fundamentaldaten ──────────────────────────────────────────────────────
     if info:
         st.markdown("#### 📊 Fundamentaldaten")
-        with st.expander("ℹ️ Wie werden die Fundamentaldaten berechnet?"):
-            st.markdown("""
-| Kennzahl | Berechnung | Interpretation |
-|----------|-----------|----------------|
-| **KGV (P/E)** | Aktienkurs ÷ Gewinn je Aktie (letzte 12 Monate). | < Sektorbenchmark = günstig · > 2× Benchmark = teuer |
-| **Fwd. KGV** | Kurs ÷ erwarteter Gewinn je Aktie (nächste 12 Monate). | Zeigt ob Wachstum bereits eingepreist ist |
-| **KBV (P/B)** | Kurs ÷ Buchwert je Aktie (Eigenkapital ÷ Aktienanzahl). | < 1 = unter Buchwert (potentiell unterbewertet) |
-| **PEG** | KGV ÷ jährliches Gewinnwachstum (%). | < 1 = Wachstum günstig · > 2 = Wachstum teuer eingepreist |
-| **EPS (TTM)** | Gewinn je Aktie der letzten 12 Monate (Trailing Twelve Months). | Positiv = profitabel · negativ = Verlustunternehmen |
-| **Nettomarge** | Jahresüberschuss ÷ Umsatz × 100. | > 20% = sehr starkes Geschäftsmodell |
-| **Umsatzwachstum** | (Umsatz aktuell − Umsatz Vorjahr) ÷ Umsatz Vorjahr × 100. | > 20% = starkes Wachstum · negativ = Schrumpfung |
-| **D/E Ratio** | Gesamtschulden ÷ Eigenkapital × 100. | < 50% = solide · > 200% = hoch verschuldet |
-| **Dividende** | Jährliche Dividende je Aktie ÷ Aktienkurs × 100. | Attraktiv ab ~3% – nur bei stabilen Unternehmen relevant |
-| **Beta** | Kursvolatilität relativ zum Gesamtmarkt (S&P 500). | < 1 = defensiv · > 1 = volatiler als Markt · > 2 = sehr spekulativ |
-| **Fund.-Score** | Gewichtete Summe aller Fundamental-Signale (−30 bis +30). | Wird zum technischen Score addiert · positiv = fundamental bullisch |
-            """)
         fs, _, _ = score_fundamentals(info, ticker)
         raw_fund = {
             "Marktkapital.":   f"${info.get('marketCap',0)/1e9:.1f}B"        if info.get("marketCap") else "–",
@@ -700,7 +775,8 @@ def render_overview():
     for i, (name, ticker) in enumerate(assets_to_check.items()):
         progress.progress((i + 1) / total, text=f"Lade {name} …")
         df   = fetch_data(ticker, st.session_state.get("global_period", "1y"))
-        sig, score, details, _reasons, val_label, _vc, _vd, _fd, _fr = generate_signal(df, ticker)
+        info = fetch_info(ticker) if ticker not in ["SLV", "GLD", "URTH", "SPY", "BTC-USD"] else {}
+        sig, score, details, _reasons, val_label, _vc, _vd, _fd, _fr = generate_signal(df, ticker, info)
 
         close_series = df["Close"].squeeze() if df is not None else None
         price  = float(close_series.iloc[-1]) if close_series is not None else 0
@@ -708,17 +784,19 @@ def render_overview():
         chg1m  = float((close_series.iloc[-1] - close_series.iloc[-21]) / close_series.iloc[-21] * 100) if close_series is not None and len(close_series) > 21 else 0
         chg3m  = float((close_series.iloc[-1] - close_series.iloc[-63]) / close_series.iloc[-63] * 100) if close_series is not None and len(close_series) > 63 else 0
 
+        mkt_icon_ov, mkt_status_ov, _ = get_market_status(ticker)
         results.append({
-            "Asset":       name,
-            "Ticker":      ticker,
-            "Gewicht (%)": int(PORTFOLIO_WEIGHTS[name] * 100),
-            "Kurs ($)":    round(price, 2),
-            "1T (%)":      round(chg1d, 2),
-            "1M (%)":      round(chg1m, 2),
-            "3M (%)":      round(chg3m, 2),
-            "RSI":         details.get("RSI", "–"),
-            "Score":       score,
-            "Signal":      sig,
+            "Asset":         name,
+            "Ticker":        ticker,
+            "Börse":         f"{mkt_icon_ov} {mkt_status_ov}",
+            "Gewicht (%)":   int(PORTFOLIO_WEIGHTS[name] * 100),
+            "Kurs ($)":      round(price, 2),
+            "1T (%)":        round(chg1d, 2),
+            "1M (%)":        round(chg1m, 2),
+            "3M (%)":        round(chg3m, 2),
+            "RSI":           details.get("RSI", "–"),
+            "Bewertung":     val_label,
+            "Signal":        sig,
         })
 
     progress.empty()
@@ -736,10 +814,22 @@ def render_overview():
             return f"color:{'#00d084' if val >= 0 else '#ff4444'}"
         return ""
 
+    def val_color_fn(val):
+        if "überverkauft" in val or "Stark überverkauft" in val:
+            return "color:#00d084"
+        if "Leicht überverkauft" in val:
+            return "color:#aacc00"
+        if "Stark überkauft" in val:
+            return "color:#ff4444"
+        if "Leicht überkauft" in val:
+            return "color:#ff8800"
+        return "color:#aaaaaa"
+
     _map = "map" if hasattr(df_res.style, "map") else "applymap"
     styled = df_res.style
     styled = getattr(styled, _map)(signal_color, subset=["Signal"])
     styled = getattr(styled, _map)(chg_color,    subset=["1T (%)", "1M (%)", "3M (%)"])
+    styled = getattr(styled, _map)(val_color_fn,  subset=["Bewertung"])
     styled = styled.format({"Kurs ($)": "{:.2f}", "1T (%)": "{:+.2f}", "1M (%)": "{:+.2f}", "3M (%)": "{:+.2f}"})
 
     st.dataframe(styled, use_container_width=True, hide_index=True)
@@ -787,7 +877,15 @@ def main():
             render_asset(name, ticker)
 
     st.divider()
-    st.caption(f"⚠️ Nur zu Informationszwecken. Kein Anlageberatungsersatz. Letzte Aktualisierung: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+    st.components.v1.html("""
+    <p style='font-size:0.8rem;color:#888;font-family:sans-serif'>
+        ⚠️ Nur zu Informationszwecken. Kein Anlageberatungsersatz.
+        Letzte Aktualisierung: <span id='ts'></span>
+    </p>
+    <script>
+        document.getElementById('ts').innerText = new Date().toLocaleString('de-DE');
+    </script>
+    """, height=30)
 
 if __name__ == "__main__":
     main()
