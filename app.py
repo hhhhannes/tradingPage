@@ -8,6 +8,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
+from streamlit_autorefresh import st_autorefresh
 
 # ── Market Hours Helper ───────────────────────────────────────────────────────
 from datetime import datetime, timedelta
@@ -764,12 +765,12 @@ def render_asset(name, ticker):
 
 # ── Portfolio Overview ────────────────────────────────────────────────────────
 def render_overview():
-    st.subheader("🗂️ Portfolio Übersicht – Alle Signale")
+    st.subheader("Übersicht")
 
     results = []
     progress = st.progress(0, text="Daten werden geladen …")
 
-    assets_to_check = {k: v for k, v in ASSETS.items() if k in PORTFOLIO_WEIGHTS}
+    assets_to_check = ASSETS  # gleiche Assets wie in der Tab-Navigation
     total = len(assets_to_check)
 
     for i, (name, ticker) in enumerate(assets_to_check.items()):
@@ -789,12 +790,10 @@ def render_overview():
             "Asset":         name,
             "Ticker":        ticker,
             "Börse":         f"{mkt_icon_ov} {mkt_status_ov}",
-            "Gewicht (%)":   int(PORTFOLIO_WEIGHTS[name] * 100),
             "Kurs ($)":      round(price, 2),
             "1T (%)":        round(chg1d, 2),
             "1M (%)":        round(chg1m, 2),
             "3M (%)":        round(chg3m, 2),
-            "RSI":           details.get("RSI", "–"),
             "Bewertung":     val_label,
             "Signal":        sig,
         })
@@ -845,6 +844,9 @@ def render_overview():
 
 # ── Main App ──────────────────────────────────────────────────────────────────
 def main():
+    # Auto-refresh alle 5 Minuten (300000 ms)
+    st_autorefresh(interval=300_000, key="data_autorefresh")
+
     # ── Sidebar: globale Einstellungen ────────────────────────────────────────
     with st.sidebar:
         st.markdown("## ⚙️ Einstellungen")
