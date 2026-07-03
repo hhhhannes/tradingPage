@@ -9,24 +9,134 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 from streamlit_autorefresh import st_autorefresh
-
-# ── Market Hours Helper ───────────────────────────────────────────────────────
-from datetime import datetime, timedelta
 import zoneinfo
 
-MARKET_INFO = {
-    # ticker → (timezone, open_h, open_m, close_h, close_m, name)
-    "NVDA":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
-    "AAPL":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
-    "MSFT":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
-    "AMZN":    ("America/New_York", 9, 30, 16, 0,  "NASDAQ"),
-    "SPY":     ("America/New_York", 9, 30, 16, 0,  "NYSE"),
-    "URTH":    ("America/New_York", 9, 30, 16, 0,  "NYSE"),
-    "SLV":     ("America/New_York", 9, 30, 16, 0,  "NYSE"),
-    "GLD":     ("America/New_York", 9, 30, 16, 0,  "NYSE"),
-    "BW":      ("America/New_York", 9, 30, 16, 0,  "NYSE"),
-    "BTC-USD": (None, 0, 0, 23, 59, "Krypto 24/7"),
+# ── Page Config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Investment Dashboard",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ── SINGLE SOURCE OF TRUTH: Alle Assets werden NUR hier definiert ───────────
+# Um ein neues Asset hinzuzufügen: einfach einen neuen Eintrag anhängen.
+# Alles andere (Tabs, Börsenzeiten, Portfolio-Strategie, Benchmarks, …)
+# wird automatisch daraus abgeleitet.
+#
+# Felder:
+#   name             Anzeigename für Tab-Titel & Übersicht (Pflicht)
+#   strategy_label   Kurzname für die Strategie-Tabelle (optional, Default = name)
+#   tz               Zeitzone der Börse, None = 24/7 (z.B. Krypto)
+#   open / close     Handelszeiten als (Stunde, Minute)
+#   market_name      Anzeigename der Börse (z.B. "NASDAQ", "Krypto 24/7")
+#   is_stock         True = Fundamentaldaten (KGV, KBV, …) werden geladen
+#   pe_benchmark     Branchen-Benchmark für KGV (optional, nur bei is_stock)
+#   pb_benchmark     Branchen-Benchmark für KBV (optional, nur bei is_stock)
+#   weight           Ziel-Portfoliogewichtung 0..1, None = nicht im Kernportfolio
+#   category         Kategorie für Strategie-Tabelle (nur nötig wenn weight gesetzt)
+#   risk             Risikoeinstufung für Strategie-Tabelle
+#   goal             Anlageziel für Strategie-Tabelle
+# ═══════════════════════════════════════════════════════════════════════════
+ASSET_CONFIG = {
+    "EURCHF=X": {
+        "name": "EUR/CHF Kurs",
+        "tz": None, "open": (8, 0), "close": (22,0), "market_name": "Forex",
+        "is_stock": False,
+        "currency_symbol": "",  # Wechselkurs, kein Dollarpreis
+        "weight": None,
+    },
+    "SLV": {
+        "name": "Silber (SLV)",
+        "strategy_label": "Silber",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NYSE",
+        "is_stock": False,
+        "weight": 0.10, "category": "Rohstoff", "risk": "Mittel", "goal": "Inflationsschutz",
+    },
+    "GLD": {
+        "name": "Gold (GLD)",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NYSE",
+        "is_stock": False,
+        "weight": 0.08, "category": "Sicherheit", "risk": "Niedrig", "goal": "Sicherheit",
+    },
+    "BTC-USD": {
+        "name": "Bitcoin (BTC-USD)",
+        "strategy_label": "Bitcoin",
+        "tz": None, "open": (0, 0), "close": (23, 59), "market_name": "Krypto 24/7",
+        "is_stock": False,
+        "weight": 0.12, "category": "Krypto", "risk": "Sehr Hoch", "goal": "Asymm. Upside",
+    },
+    "URTH": {
+        "name": "MSCI World (URTH)",
+        "strategy_label": "MSCI World ETF",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NYSE",
+        "is_stock": False,
+        "weight": 0.30, "category": "Core ETF", "risk": "Niedrig", "goal": "Breite Diversifikation",
+    },
+    "NVDA": {
+        "name": "NVIDIA",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NASDAQ",
+        "is_stock": True, "pe_benchmark": 40, "pb_benchmark": 20,
+        "weight": 0.15, "category": "KI-Wachstum", "risk": "Hoch", "goal": "KI-Wachstum",
+    },
+    "AAPL": {
+        "name": "Apple",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NASDAQ",
+        "is_stock": True, "pe_benchmark": 28, "pb_benchmark": 40,
+        "weight": 0.15, "category": "Tech Blue-Chip", "risk": "Mittel", "goal": "Stabile Rendite",
+    },
+    "BW": {
+        "name": "Babcock & Wilcox",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NYSE",
+        "is_stock": True, "pe_benchmark": 20, "pb_benchmark": 2,
+        "weight": 0.05, "category": "Spezialwert", "risk": "Hoch", "goal": "Nischenwachstum",
+    },
+    "SPY": {
+        "name": "S&P 500 (SPY)",
+        "strategy_label": "S&P 500 ETF",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NYSE",
+        "is_stock": False,
+        "weight": 0.05, "category": "Core ETF", "risk": "Niedrig", "goal": "US-Markt Kern",
+    },
+    "MSFT": {
+        "name": "Microsoft",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NASDAQ",
+        "is_stock": True, "pe_benchmark": 32, "pb_benchmark": 12,
+        "weight": None,
+    },
+    "AMZN": {
+        "name": "Amazon",
+        "tz": "America/New_York", "open": (9, 30), "close": (16, 0), "market_name": "NASDAQ",
+        "is_stock": True, "pe_benchmark": 45,
+        "weight": None,
+    },
+    # 👉 Neues Asset hinzufügen? Einfach hier einen weiteren Eintrag ergänzen —
+    #    Tabs, Börsenstatus, Fundamentaldaten & Strategie-Tabelle ziehen automatisch nach.
 }
+
+# ── Abgeleitete Strukturen (bitte nicht direkt editieren, siehe ASSET_CONFIG) ─
+ASSETS = {cfg["name"]: ticker for ticker, cfg in ASSET_CONFIG.items()}
+
+MARKET_INFO = {
+    ticker: (cfg["tz"], cfg["open"][0], cfg["open"][1], cfg["close"][0], cfg["close"][1], cfg["market_name"])
+    for ticker, cfg in ASSET_CONFIG.items()
+}
+
+STOCK_TICKERS = {ticker for ticker, cfg in ASSET_CONFIG.items() if cfg.get("is_stock")}
+
+PORTFOLIO_WEIGHTS = {
+    cfg["name"]: cfg["weight"] for cfg in ASSET_CONFIG.values() if cfg.get("weight")
+}
+
+PE_BENCHMARKS = {ticker: cfg["pe_benchmark"] for ticker, cfg in ASSET_CONFIG.items() if cfg.get("pe_benchmark")}
+PE_BENCHMARKS["default"] = 25
+
+PB_BENCHMARKS = {ticker: cfg["pb_benchmark"] for ticker, cfg in ASSET_CONFIG.items() if cfg.get("pb_benchmark")}
+PB_BENCHMARKS["default"] = 5
+
+CURRENCY_SYMBOLS = {ticker: cfg.get("currency_symbol", "$") for ticker, cfg in ASSET_CONFIG.items()}
+
 
 def get_market_status(ticker):
     info = MARKET_INFO.get(ticker)
@@ -70,14 +180,6 @@ def get_market_status(ticker):
         return "🔴", "Geschlossen", f"{market_name} · öffnet {local_open.strftime('%d.%m. %H:%M')} MEZ"
 
 
-# ── Page Config ──────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Investment Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
 # ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -118,31 +220,6 @@ st.markdown("""
   }
 </style>
 """, unsafe_allow_html=True)
-
-# ── Asset Universe ────────────────────────────────────────────────────────────
-ASSETS = {
-    "Silber (SLV)":           "SLV",
-    "NVIDIA":                 "NVDA",
-    "MSCI World (URTH)":      "URTH",
-    "Bitcoin (BTC-USD)":      "BTC-USD",
-    "Apple":                  "AAPL",
-    "Babcock & Wilcox":       "BW",
-    "S&P 500 (SPY)":          "SPY",
-    "Gold (GLD)":             "GLD",
-    "Microsoft":              "MSFT",
-    "Amazon":                 "AMZN",
-}
-
-PORTFOLIO_WEIGHTS = {
-    "MSCI World (URTH)":  0.30,
-    "Apple":              0.15,
-    "NVIDIA":             0.15,
-    "Bitcoin (BTC-USD)":  0.12,
-    "Silber (SLV)":       0.10,
-    "Gold (GLD)":         0.08,
-    "Babcock & Wilcox":   0.05,
-    "S&P 500 (SPY)":      0.05,
-}
 
 # ── Helper: Technical Indicators ──────────────────────────────────────────────
 def compute_indicators(df):
@@ -202,10 +279,6 @@ def compute_indicators(df):
     return df
 
 # ── Helper: Fundamental Scoring ───────────────────────────────────────────────
-# Benchmarks per sector/asset type
-PE_BENCHMARKS  = {"NVDA": 40, "AAPL": 28, "MSFT": 32, "AMZN": 45, "BW": 20, "default": 25}
-PB_BENCHMARKS  = {"NVDA": 20, "AAPL": 40, "MSFT": 12, "BW": 2,    "default": 5}
-
 def score_fundamentals(info, ticker):
     """Returns (fund_score -30..+30, fund_reasons, fund_details)"""
     fscore  = 0
@@ -442,13 +515,19 @@ def render_strategy():
     </div>
     """, unsafe_allow_html=True)
 
+    # Wird direkt aus ASSET_CONFIG abgeleitet: nur Assets mit gesetztem "weight"
+    # tauchen im Kernportfolio auf, sortiert nach Gewichtung absteigend.
+    portfolio_items = sorted(
+        [(t, c) for t, c in ASSET_CONFIG.items() if c.get("weight")],
+        key=lambda x: x[1]["weight"], reverse=True
+    )
     strategy = {
-        "Asset":           ["MSCI World ETF", "Apple", "NVIDIA", "Bitcoin", "Silber", "Gold", "Babcock & Wilcox", "S&P 500 ETF"],
-        "Ticker":          ["URTH", "AAPL", "NVDA", "BTC-USD", "SLV", "GLD", "BW", "SPY"],
-        "Kategorie":       ["Core ETF", "Tech Blue-Chip", "KI-Wachstum", "Krypto", "Rohstoff", "Sicherheit", "Spezialwert", "Core ETF"],
-        "Gewichtung (%)":  [30, 15, 15, 12, 10, 8, 5, 5],
-        "Risiko":          ["Niedrig", "Mittel", "Hoch", "Sehr Hoch", "Mittel", "Niedrig", "Hoch", "Niedrig"],
-        "Ziel":            ["Breite Diversifikation", "Stabile Rendite", "KI-Wachstum", "Asymm. Upside", "Inflationsschutz", "Sicherheit", "Nischenwachstum", "US-Markt Kern"],
+        "Asset":          [c.get("strategy_label", c["name"]) for _, c in portfolio_items],
+        "Ticker":         [t for t, _ in portfolio_items],
+        "Kategorie":      [c["category"] for _, c in portfolio_items],
+        "Gewichtung (%)": [round(c["weight"] * 100) for _, c in portfolio_items],
+        "Risiko":         [c["risk"] for _, c in portfolio_items],
+        "Ziel":           [c["goal"] for _, c in portfolio_items],
     }
     df_strat = pd.DataFrame(strategy)
 
@@ -587,9 +666,9 @@ def render_asset(name, ticker):
         st.warning(f"Keine Daten für {ticker} verfügbar.")
         return
 
-    # Fundamentals for stocks only
+    # Fundamentals only for tickers flagged as stocks in ASSET_CONFIG
     info = {}
-    if ticker not in ["SLV", "GLD", "URTH", "SPY", "BTC-USD"]:
+    if ticker in STOCK_TICKERS:
         info = fetch_info(ticker)
 
     df = compute_indicators(df.copy())
@@ -641,10 +720,12 @@ def render_asset(name, ticker):
             <div style='font-size:.95rem;font-weight:700;color:{val_color};margin-top:4px'>{val_label}</div>
         </div>""", unsafe_allow_html=True)
     with col_price:
+        sym = CURRENCY_SYMBOLS.get(ticker, "$")
+        price_str = f"{sym}{current_price:,.4f}" if sym == "" else f"{sym}{current_price:,.2f}"
         st.markdown(f"""
         <div class='metric-card'>
             <div style='color:#aaa;font-size:.8rem'>KURS</div>
-            <div style='font-size:1.8rem;font-weight:700;color:#fff'>${current_price:,.2f}</div>
+            <div style='font-size:1.8rem;font-weight:700;color:#fff'>{price_str}</div>
         </div>""", unsafe_allow_html=True)
     with col_chg:
         chg_color = "#00d084" if change_pct >= 0 else "#ff4444"
@@ -776,7 +857,7 @@ def render_overview():
     for i, (name, ticker) in enumerate(assets_to_check.items()):
         progress.progress((i + 1) / total, text=f"Lade {name} …")
         df   = fetch_data(ticker, st.session_state.get("global_period", "1y"))
-        info = fetch_info(ticker) if ticker not in ["SLV", "GLD", "URTH", "SPY", "BTC-USD"] else {}
+        info = fetch_info(ticker) if ticker in STOCK_TICKERS else {}
         sig, score, details, _reasons, val_label, _vc, _vd, _fd, _fr = generate_signal(df, ticker, info)
 
         close_series = df["Close"].squeeze() if df is not None else None
@@ -790,12 +871,13 @@ def render_overview():
             "Asset":         name,
             "Ticker":        ticker,
             "Börse":         f"{mkt_icon_ov} {mkt_status_ov}",
-            "Kurs ($)":      round(price, 2),
+            "Kurs":          round(price, 4) if ticker in CURRENCY_SYMBOLS and CURRENCY_SYMBOLS[ticker] == "" else round(price, 2),
             "1T (%)":        round(chg1d, 2),
             "1M (%)":        round(chg1m, 2),
             "3M (%)":        round(chg3m, 2),
             "Bewertung":     val_label,
             "Signal":        sig,
+            "Score":         score,
         })
 
     progress.empty()
@@ -813,6 +895,13 @@ def render_overview():
             return f"color:{'#00d084' if val >= 0 else '#ff4444'}"
         return ""
 
+    def score_color(val):
+        if val >= 62:
+            return "background-color:#00d08433;color:#00d084;font-weight:700"
+        elif val <= 40:
+            return "background-color:#ff444433;color:#ff4444;font-weight:700"
+        return "background-color:#ffa50033;color:#ffa500;font-weight:700"
+
     def val_color_fn(val):
         if "überverkauft" in val or "Stark überverkauft" in val:
             return "color:#00d084"
@@ -827,11 +916,18 @@ def render_overview():
     _map = "map" if hasattr(df_res.style, "map") else "applymap"
     styled = df_res.style
     styled = getattr(styled, _map)(signal_color, subset=["Signal"])
+    styled = getattr(styled, _map)(score_color,  subset=["Score"])
     styled = getattr(styled, _map)(chg_color,    subset=["1T (%)", "1M (%)", "3M (%)"])
     styled = getattr(styled, _map)(val_color_fn,  subset=["Bewertung"])
-    styled = styled.format({"Kurs ($)": "{:.2f}", "1T (%)": "{:+.2f}", "1M (%)": "{:+.2f}", "3M (%)": "{:+.2f}"})
+    styled = styled.format({
+        "Kurs":    lambda v: f"{v:.4f}" if abs(v) < 10 else f"{v:,.2f}",
+        "1T (%)":  "{:+.2f}", "1M (%)": "{:+.2f}", "3M (%)": "{:+.2f}",
+        "Score":   "{:.0f}/100",
+    })
 
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    # Höhe automatisch an Zeilenanzahl anpassen, damit keine Scrollleiste nötig ist
+    table_height = 38 * (len(df_res) + 1) + 3
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=table_height)
 
     # Signal summary
     buys  = len(df_res[df_res["Signal"] == "KAUFEN"])
