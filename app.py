@@ -138,6 +138,12 @@ PB_BENCHMARKS["default"] = 5
 CURRENCY_SYMBOLS = {ticker: cfg.get("currency_symbol", "$") for ticker, cfg in ASSET_CONFIG.items()}
 
 
+# Yahoo Finance extended-hours schedule (applies to all timed markets: NYSE/NASDAQ/Forex):
+# Pre-Market 04:00–09:30, Regular Session per ASSET_CONFIG, After-Hours close..+4h (until 20:00)
+PREMARKET_OPEN    = (4, 0)
+AFTERHOURS_LENGTH = timedelta(hours=4)  # regular close + 4h, e.g. 16:00 -> 20:00
+
+
 def get_market_status(ticker):
     info = MARKET_INFO.get(ticker)
     if not info:
@@ -152,32 +158,94 @@ def get_market_status(ticker):
     now = datetime.now(tz)
     weekday = now.weekday()  # 0=Mon, 6=Sun
 
-    if weekday >= 5:  # Weekend
-        # Find next Monday open
-        days_until_monday = 7 - weekday
-        next_open = now.replace(hour=oh, minute=om, second=0, microsecond=0) + timedelta(days=days_until_monday)
-        local_open = next_open.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
-        return "🔴", "Geschlossen", f"{market_name} · öffnet Mo {local_open.strftime('%d.%m. %H:%M')} MEZ"
+    premarket_dt  = now.replace(hour=PREMARKET_OPEN[0], minute=PREMARKET_OPEN[1], second=0, microsecond=0)
+    open_dt       = now.replace(hour=oh, minute=om, second=0, microsecond=0)
+    close_dt      = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+    afterhours_dt = close_dt + AFTERHOURS_LENGTH
 
-    open_dt  = now.replace(hour=oh, minute=om, second=0, microsecond=0)
-    close_dt = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+    if weekday >= 5:  # Weekend — fully closed, next session is Monday pre-market
+        days_until_monday = 7 - weekday
+        next_premarket = premarket_dt + timedelta(days=days_until_monday)
+        local_open = next_premarket.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
+        return "🔴", "Geschlossen", f"{market_name} · Vorbörse startet Mo {local_open.strftime('%d.%m. %H:%M')} MEZ"
+
+    if premarket_dt <= now < open_dt:
+        mins_left = int((open_dt - now).total_seconds() / 60)
+        h, m = divmod(mins_left, 60)
+        return "🟡", "Vorbörslich", f"{market_name} · reguläre Öffnung in {h}h {m}m"
+    elif open_dt <= now <= close_dt:
+        mins_left = int((close_dt - now).total_seconds() / 60)
+        h, m = divmod(mins_left, 60)
+        return "🟢", "Geöffnet", f"{market_name} · schließt in {h}h {m}m"
+    elif close_dt < now <= afterhours_dt:
+        mins_left = int((afterhours_dt - now).total_seconds() / 60)
+        h, m = divmod(mins_left, 60)
+        return "🟠", "Nachbörslich", f"{market_name} · Handel endet in {h}h {m}m"
+    elif now < premarket_dt:
+        # Before today's pre-market start
+        mins_until = int((premarket_dt - now).total_seconds() / 60)
+        h, m = divmod(mins_until, 60)
+        local_open = premarket_dt.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
+        return "🔴", "Geschlossen", f"{market_name} · Vorbörse startet in {h}h {m}m ({local_open.strftime('%H:%M')} MEZ)"
+    else:
+        # After after-hours session — find next trading day's pre-market
+        next_premarket = premarket_dt + timedelta(days=1)
+        while next_premarket.weekday() >= 5:
+            next_premarket += timedelta(days=1)
+        local_open = next_premarket.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
+        return "🔴", "Geschlossen", f"{market_name} · Vorbörse startet {local_open.strftime('%d.%m. %H:%M')} MEZ"
+
+
+# ── Trade Republic (LS Exchange) trading hours ───────────────────────────────
+# Trade Republic routes stock/ETF/bond orders through LS Exchange (Lang & Schwarz,
+# Hamburg), which runs a single continuous session Mon–Fri 07:30–23:00 CET/CEST —
+# no separate pre-/after-market like NYSE. Crypto trades 24/7. Forex pairs (e.g.
+# EUR/CHF) are not offered by Trade Republic, so they're excluded here.
+TR_TZ    = "Europe/Berlin"
+TR_OPEN  = (7, 30)
+TR_CLOSE = (23, 0)
+TR_NOT_TRADABLE = {"EURCHF=X"}  # brokers/products without TR support
+
+
+def get_broker_status(ticker):
+    """Returns (icon, status, detail) for whether Trade Republic is open for this ticker."""
+    if ticker in TR_NOT_TRADABLE:
+        return "⚪", "Nicht verfügbar", "Kein Trade Republic Handel für dieses Produkt"
+
+    info = MARKET_INFO.get(ticker)
+    if not info:
+        return "⚪", "Unbekannt", ""
+    tz_name = info[0]
+
+    # Crypto trades 24/7 on Trade Republic too
+    if tz_name is None:
+        return "🟢", "Geöffnet", "Trade Republic · Krypto 24/7"
+
+    tz = zoneinfo.ZoneInfo(TR_TZ)
+    now = datetime.now(tz)
+    weekday = now.weekday()
+
+    open_dt  = now.replace(hour=TR_OPEN[0], minute=TR_OPEN[1], second=0, microsecond=0)
+    close_dt = now.replace(hour=TR_CLOSE[0], minute=TR_CLOSE[1], second=0, microsecond=0)
+
+    if weekday >= 5:  # Weekend — LS Exchange closed for TR customers
+        days_until_monday = 7 - weekday
+        next_open = open_dt + timedelta(days=days_until_monday)
+        return "🔴", "Geschlossen", f"Trade Republic · öffnet Mo {next_open.strftime('%H:%M')} Uhr"
 
     if open_dt <= now <= close_dt:
         mins_left = int((close_dt - now).total_seconds() / 60)
         h, m = divmod(mins_left, 60)
-        return "🟢", "Geöffnet", f"{market_name} · schließt in {h}h {m}m"
+        return "🟢", "Geöffnet", f"Trade Republic · schließt in {h}h {m}m"
     elif now < open_dt:
         mins_until = int((open_dt - now).total_seconds() / 60)
         h, m = divmod(mins_until, 60)
-        local_open = open_dt.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
-        return "🟡", "Vorbörslich", f"{market_name} · öffnet in {h}h {m}m ({local_open.strftime('%H:%M')} MEZ)"
+        return "🟡", "Vorbörslich", f"Trade Republic · öffnet in {h}h {m}m ({open_dt.strftime('%H:%M')} Uhr)"
     else:
-        # After close — find next open
         next_open = open_dt + timedelta(days=1)
         while next_open.weekday() >= 5:
             next_open += timedelta(days=1)
-        local_open = next_open.astimezone(zoneinfo.ZoneInfo("Europe/Zurich"))
-        return "🔴", "Geschlossen", f"{market_name} · öffnet {local_open.strftime('%d.%m. %H:%M')} MEZ"
+        return "🔴", "Geschlossen", f"Trade Republic · öffnet {next_open.strftime('%d.%m. %H:%M')} Uhr"
 
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
@@ -655,6 +723,27 @@ def render_strategy():
 | **Fund.-Score** | Gewichtete Summe aller Fundamental-Signale (−30 bis +30). | Positiv = fundamental bullisch |
         """)
 
+    with st.expander("🕒 Beste Handelszeit bei Trade Republic"):
+        st.markdown("""
+Trade Republic wickelt Aktien-/ETF-Orders über die LS Exchange ab, die börsentäglich von 07:30 bis 23:00 Uhr (MEZ/MESZ) geöffnet ist. Innerhalb dieses Fensters ist die Liquidität aber sehr unterschiedlich — je näher an den Öffnungszeiten der großen Referenzbörsen (Xetra, NYSE/NASDAQ), desto engere Spreads.
+
+| Zeitfenster | Was passiert | Empfehlung |
+|-------------|--------------|------------|
+| **07:30–09:00** | LS Exchange offen, Xetra noch zu | ⚠️ Meiden – dünne Liquidität, breite Spreads |
+| **09:00–17:30** | Xetra-Kernzeit | ✅ Beste Zeit für europäische Aktien/ETFs |
+| **15:30–17:30** | Xetra **und** US-Börsen gleichzeitig offen (15:30 MEZ = 9:30 ET) | ✅✅ Bestes Fenster für US-Titel (NVDA, AAPL, MSFT, AMZN, BW) |
+| **17:30–22:00** | Xetra zu, US-Börse noch offen | 🟡 Ok für US-Titel, Spread etwas breiter |
+| **20:00–23:00** | Auch US-Börse zu (Nachbörse endet ~20 Uhr MEZ) | 🔴 Meiden – kaum Liquidität |
+| **Krypto** | 24/7 | Zeitpunkt spielt keine Rolle |
+
+**Für dieses Portfolio bedeutet das konkret:**
+- **NVDA, AAPL, MSFT, AMZN, BW** (US-Titel) → am besten **15:30–17:30 Uhr MEZ**
+- **SLV, GLD, URTH, SPY** (in Europa gut handelbare ETFs) → **09:00–17:30 Uhr** reicht
+- **BTC-USD** → jederzeit handelbar
+- Vor 9:00 und nach 17:30 Uhr (besonders nach 20 Uhr) sind Spreads spürbar breiter — das ist ein unsichtbarer Aufschlag, auch wenn Trade Republic technisch "geöffnet" hat.
+        """)
+
+
 # ── Single Asset Analysis ─────────────────────────────────────────────────────
 def render_asset(name, ticker):
     st.subheader(f"📊 {name} ({ticker})")
@@ -682,21 +771,29 @@ def render_asset(name, ticker):
     badge_class = {"KAUFEN": "buy", "HALTEN": "hold", "VERKAUFEN": "sell"}[signal]
     emoji       = {"KAUFEN": "🟢", "HALTEN": "🟡", "VERKAUFEN": "🔴"}[signal]
 
-    # ── Yahoo Finance Link + Market Status ───────────────────────────────────
+    # ── Yahoo Finance Link + Market Status + Trade Republic Status ───────────
     yahoo_url = f"https://finance.yahoo.com/quote/{ticker}"
     mkt_icon, mkt_status, mkt_detail = get_market_status(ticker)
-    col_link, col_mkt = st.columns([1, 2])
+    tr_icon, tr_status, tr_detail = get_broker_status(ticker)
+    col_link, col_mkt, col_tr = st.columns([1, 1.6, 1.6])
     with col_link:
         st.markdown(f"🔗 [Auf Yahoo Finance öffnen]({yahoo_url})")
-    with col_mkt:
-        status_color = {"🟢": "#00d084", "🟡": "#ffa500", "🔴": "#ff4444", "⚪": "#888"}.get(mkt_icon, "#888")
+
+    def render_status_badge(icon, status, detail):
+        color = {"🟢": "#00d084", "🟡": "#ffa500", "🟠": "#ff8800", "🔴": "#ff4444", "⚪": "#888"}.get(icon, "#888")
         st.markdown(
             f"<div style='padding:4px 12px;border-radius:8px;background:#1e2130;display:inline-block;"
-            f"border-left:3px solid {status_color}'>"
-            f"<span style='color:{status_color};font-weight:700'>{mkt_icon} {mkt_status}</span>"
-            f"<span style='color:#aaa;font-size:.85rem'> &nbsp;{mkt_detail}</span></div>",
+            f"border-left:3px solid {color}'>"
+            f"<span style='color:{color};font-weight:700'>{icon} {status}</span>"
+            f"<span style='color:#aaa;font-size:.85rem'> &nbsp;{detail}</span></div>",
             unsafe_allow_html=True
         )
+
+    with col_mkt:
+        render_status_badge(mkt_icon, mkt_status, mkt_detail)
+    with col_tr:
+        render_status_badge(tr_icon, tr_status, tr_detail)
+
 
     # ── Top Row ───────────────────────────────────────────────────────────────
     col_sig, col_score, col_val, col_price, col_chg = st.columns(5)
