@@ -1,337 +1,524 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Market % Monitor</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            margin: 0;
-            background-color: #0d1117;
-            color: #fafafa;
-        }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{margin:0}</style>
+<title>Saisonaler Fahrplan 2026/27</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: schmale Lesespalte, Zeitachse als breites Gantt-Band, Phasen als Tabellen darunter */
+:root{
+  --bg:#f4f6f8; --surface:#ffffff; --fg:#15212c; --muted:#5b6876; --line:#d8dee5;
+  --accent:#1d4ed8; --accent-soft:#e3eaff;
+  --buy:#1f8a5b; --half:#c98a12; --sell:#c2410c; --earn:#15212c;
+  --bar-full:#2b6be3; --bar-half:#9fbaf2; --today:#c2410c;
+  --f-display:"Archivo","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f151c; --surface:#16202a; --fg:#e6ecf2; --muted:#9aa8b6; --line:#2a3744;
+  --accent:#7aa2ff; --accent-soft:#1c2a47;
+  --buy:#4cc38a; --half:#e6b44a; --sell:#f08a5d; --earn:#e6ecf2;
+  --bar-full:#4f86f0; --bar-half:#2f4b80; --today:#f08a5d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151c; --surface:#16202a; --fg:#e6ecf2; --muted:#9aa8b6; --line:#2a3744;
+  --accent:#7aa2ff; --accent-soft:#1c2a47;
+  --buy:#4cc38a; --half:#e6b44a; --sell:#f08a5d; --earn:#e6ecf2;
+  --bar-full:#4f86f0; --bar-half:#2f4b80; --today:#f08a5d; color-scheme:dark}
 
-        header {
-            background: #161b22;
-            padding: 15px;
-            text-align: center;
-            border-bottom: 1px solid #30363d;
-            font-weight: bold;
-            font-size: 1.4rem;
-            color: #fafafa;
-        }
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-block:40px 64px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:grid;gap:44px;grid-template-columns:minmax(0,1fr)}
+h1,h2,h3{font-family:var(--f-display);font-stretch:85%;text-wrap:balance;margin:0;line-height:1.1}
+h1{font-size:clamp(2rem,5vw,3.1rem);font-weight:800;letter-spacing:-.01em}
+h2{font-size:1.6rem;font-weight:750}
+h3{font-size:1.1rem;font-weight:700}
+p{margin:0;max-width:68ch}
+.eyebrow{font-family:var(--f-mono);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mono,td.d{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+header{display:grid;gap:14px}
+.lede{color:var(--muted);font-size:1.02rem}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:.85rem;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
 
-        .main-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 15px;
-            padding: 15px;
-        }
+.tag{display:inline-block;font-family:var(--f-mono);font-size:.7rem;padding:1px 6px;border-radius:3px;border:1px solid currentColor;white-space:nowrap;vertical-align:1px}
+.t-ok{color:var(--buy)} .t-cal{color:var(--half)} .t-est{color:var(--muted)}
+.act{font-weight:600}
+.act.buy{color:var(--buy)} .act.sell{color:var(--sell)} .act.half{color:var(--half)}
 
-        .asset-card {
-            background: #161b22;
-            border-radius: 12px;
-            border: 1px solid #30363d;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
+section{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}
+.sechead{display:grid;gap:6px}
 
-        /* Einheitliche Höhe für alle Karten-Header */
-        .label {
-            padding: 0 15px;
-            height: 50px;
-            /* Feste Höhe für alle Header */
-            background: #21262d;
-            font-weight: bold;
-            border-bottom: 1px solid #30363d;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.9rem;
-        }
+/* Heute-Panel */
+.now{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px;display:grid;gap:14px}
+.now-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+.now ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.now li{display:grid;grid-template-columns:62px 1fr;gap:10px;align-items:baseline;font-size:.92rem}
+.now li .mono{color:var(--muted);font-size:.82rem}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;align-items:flex-start}
+.chip{font-family:var(--f-mono);font-size:.8rem;padding:3px 8px;border-radius:4px;background:var(--accent-soft);color:var(--accent)}
 
-        .chart-container {
-            height: 350px;
-            width: 100%;
-        }
+/* Gantt */
+.scroller{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.gantt{min-width:820px;padding:12px 16px 16px;position:relative}
+.g-row{display:grid;grid-template-columns:168px 1fr;align-items:center;min-height:30px}
+.g-row+.g-row{border-top:1px dashed var(--line)}
+.g-label{font-size:.84rem;font-weight:600;line-height:1.15;padding:3px 8px 3px 0}
+.g-label small{display:block;font-family:var(--f-mono);font-size:.7rem;font-weight:400;color:var(--muted)}
+.g-track{position:relative;height:30px}
+.g-head .g-track{height:22px}
+.m-tick{position:absolute;top:0;font-family:var(--f-mono);font-size:.72rem;color:var(--muted);padding-left:4px;border-left:1px solid var(--line);height:100%}
+.bar{position:absolute;top:9px;height:12px;border-radius:2px}
+.bar.full{background:var(--bar-full)}
+.bar.half{background:var(--bar-half)}
+.bar.open{border-top-right-radius:0;border-bottom-right-radius:0}
+.exit{position:absolute;top:6px;width:3px;height:18px;background:var(--sell);border-radius:1px}
+.earn{position:absolute;top:10px;width:9px;height:9px;transform:translateX(-50%) rotate(45deg);background:var(--surface);border:2px solid var(--earn)}
+.earn.ok{background:var(--earn)}
+.vline{position:absolute;top:0;bottom:0;width:0;border-left:1px dotted var(--muted);opacity:.55;pointer-events:none}
+.today{position:absolute;top:0;bottom:0;width:0;border-left:2px solid var(--today);pointer-events:none}
+.today b{position:absolute;top:-2px;left:4px;font-family:var(--f-mono);font-size:.68rem;color:var(--today);font-weight:500;white-space:nowrap}
+.sw{display:inline-block;width:18px;height:10px;border-radius:2px}
+.dia{display:inline-block;width:8px;height:8px;transform:rotate(45deg);border:2px solid var(--earn)}
 
-        .ta-container {
-            height: 380px;
-            width: 100%;
-            border-top: 1px solid #30363d;
-            background: #0d1117;
-        }
+/* Regeln */
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;counter-reset:r}
+.rule{border-top:2px solid var(--fg);padding-top:10px;display:grid;gap:4px;font-size:.92rem}
+.rule h3{font-size:1rem}
+.rule p{color:var(--muted)}
 
-        .price-info {
-            margin-left: 10px;
-            font-family: monospace;
-            font-size: 1rem;
-            color: #8b949e;
-        }
+/* Tabellen */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:.88rem}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td.tk{font-family:var(--f-mono);font-weight:600;white-space:nowrap}
+td.d{white-space:nowrap}
+.note{border-left:3px solid var(--half);padding:8px 14px;background:var(--surface);font-size:.9rem;border-radius:0 6px 6px 0}
 
-        .percent-tag {
-            margin-left: 8px;
-            font-weight: bold;
-        }
+/* Termine */
+.dates{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+.dates li{display:grid;grid-template-columns:88px 70px 84px 1fr;gap:4px 12px;align-items:baseline;padding:9px 14px;border-top:1px solid var(--line);font-size:.92rem}
+.dates li:first-child{border-top:0}
+.dates li.soon{background:var(--accent-soft)}
+.dates li.t-m{display:block;background:var(--bg);font-family:var(--f-mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 14px}
+.t-d{font-weight:500}
+.t-c{font-size:.8rem;color:var(--muted)}
+.t-k{font-size:.8rem}
+.t-k:not(.act){color:var(--muted)}
+.t-x b{font-weight:600}
+.t-x small{display:block;color:var(--muted);font-size:.82rem}
+.more{justify-self:start;font:inherit;font-size:.85rem;padding:6px 12px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--fg);cursor:pointer}
+.more:hover{border-color:var(--accent);color:var(--accent)}
+.more:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:560px){
+  .dates li{grid-template-columns:auto 1fr}
+  .dates .t-c{justify-self:end}
+  .dates .t-x{grid-column:1/-1}
+}
 
-        .threshold-input {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #fafafa;
-            padding: 5px;
-            border-radius: 4px;
-            width: 50px;
-            text-align: center;
-        }
+/* Kurse */
+.qbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--surface)}
+.seg button{font:inherit;font-size:.82rem;padding:5px 11px;border:0;background:none;color:var(--muted);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.stamp{font-family:var(--f-mono);font-size:.78rem;color:var(--muted)}
+.stamp.old{color:var(--sell)}
+.mkt{display:flex;flex-wrap:wrap;gap:10px 22px;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:.9rem}
+.mkt b{font-family:var(--f-mono);font-weight:500}
+#qt table{min-width:900px}
+#qt td,#qt th{padding:8px 10px;vertical-align:middle}
+#qt th.n,#qt td.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+#qt th button{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;background:none;border:0;padding:0;cursor:pointer}
+#qt th button:hover{color:var(--accent)}
+#qt th button[data-dir]::after{content:" ↓"}
+#qt th button[data-dir="asc"]::after{content:" ↑"}
+#qt td.nm{min-width:130px}
+#qt td.nm small{display:block;color:var(--muted);font-size:.76rem}
+#qt tr.grp td{background:var(--bg);font-family:var(--f-mono);font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding:5px 10px}
+.up{color:var(--buy)} .dn{color:var(--sell)}
+.spark{display:block}
+.sig{font-size:.84rem;white-space:nowrap}
+.st{font-size:.8rem;color:var(--muted);white-space:nowrap}
+.chip .up,.chip .dn{font-weight:600}
 
-        .threshold-input:focus {
-            outline: none;
-            border-color: #d4af37;
-        }
+</style>
 
-        footer {
-            text-align: center;
-            padding: 15px;
-            color: #8b949e;
-            font-size: 0.8rem;
-        }
+<div class="wrap">
 
-        footer a {
-            color: #fafafa;
-            text-decoration: none;
-        }
+<header>
+  <div class="eyebrow">Saisonalität × Quartalszahlen · Okt 2026 – Mai 2027</div>
+  <h1>Saisonaler Fahrplan 2026/27</h1>
+  <p class="lede">Wann man welche saisonalen Aktien kauft, wann man rund um die Quartalszahlen reduziert und wann man wieder verkauft. Die Zeitfenster beruhen auf Saisonalitätsmustern der letzten 10–20 Jahre und sind auf ±1–2 Wochen genau. Keine Anlageberatung.</p>
+  <div class="legend">
+    <span><span class="tag t-ok">bestätigt</span> vom Unternehmen</span>
+    <span><span class="tag t-cal">Kalender</span> Schätzung von Kalenderdiensten</span>
+    <span><span class="tag t-est">geschätzt</span> aus dem üblichen Rhythmus</span>
+  </div>
+</header>
 
-        footer a:hover {
-            text-decoration: underline;
-        }
-
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 40px;
-            height: 20px;
-            margin-left: 8px;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #30363d;
-            transition: .3s;
-            border-radius: 20px;
-            border: 1px solid #30363d;
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 14px;
-            width: 14px;
-            left: 3px;
-            bottom: 3px;
-            background-color: #8b949e;
-            transition: .3s;
-            border-radius: 50%;
-        }
-
-        input:checked + .toggle-slider {
-            background-color: #fafafa;
-            border-color: #fafafa;
-        }
-
-        input:checked + .toggle-slider:before {
-            transform: translateX(20px);
-            background-color: #0d1117;
-        }
-    </style>
-</head>
-
-<body>
-
-    <header>MARKET DASHBOARD</header>
-
-    <div class="main-grid">
-        <div class="asset-card">
-            <div class="label">
-                <div>
-                    <span>GOLD</span>
-                    <span id="goldPrice" class="price-info">--.--</span>
-                    <span id="goldPercent" class="percent-tag">--%</span>
-                </div>
-                <label
-                    style="font-size: 0.75rem; font-weight: normal; color: #8b949e; display: flex; align-items: center; gap: 5px;">
-                    Limit: <input type="number" id="thresholdInput" class="threshold-input" value="2.0" step="0.1"> %
-                </label>
-                <label style="font-size: 0.75rem; font-weight: normal; color: #8b949e; display: flex; align-items: center; gap: 5px;">
-                    Check below:
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="checkBelowToggle" checked>
-                        <span class="toggle-slider"></span>
-                    </label>
-                </label>
-            </div>
-            <div id="gold_chart" class="chart-container"></div>
-            <div id="gold_ta" class="ta-container"></div>
-        </div>
-
-        <div class="asset-card">
-            <div class="label">
-                <span>BITCOIN </span>
-                <div style="width: 85px;"></div>
-            </div>
-            <div id="btc_chart" class="chart-container"></div>
-            <div id="btc_ta" class="ta-container"></div>
-        </div>
-
-        <div class="asset-card">
-            <div class="label">
-                <span>EURO / CHF </span>
-                <div style="width: 85px;"></div>
-            </div>
-            <div id="eurchf_chart" class="chart-container"></div>
-            <div id="eurchf_ta" class="ta-container"></div>
-        </div>
+<section id="termine">
+  <div class="sechead">
+    <div class="eyebrow">Kalender · Quartalszahlen · Kauf und Verkauf · Markt</div>
+    <h2>Wichtige Termine</h2>
+  </div>
+  <div class="qbar">
+    <div class="seg" role="group" aria-label="Termine filtern">
+      <button type="button" data-f="all" aria-pressed="true">Alle</button>
+      <button type="button" data-f="trade" aria-pressed="false">Kauf &amp; Verkauf</button>
+      <button type="button" data-f="earn" aria-pressed="false">Quartalszahlen</button>
+      <button type="button" data-f="mkt" aria-pressed="false">Markt</button>
     </div>
+  </div>
+  <ul class="dates" id="t-list"></ul>
+  <button class="more" type="button" id="t-more"></button>
+</section>
 
-    <footer>Stand 2026 | <a href="https://tradingpage-6de8gzvs8sxckagkjs8yv3.streamlit.app/">Gold Intelligence Terminal</a></footer>
+<section class="now" id="now" aria-live="polite">
+  <div class="sechead">
+    <div class="eyebrow" id="now-date">Stand heute</div>
+    <h2>Was jetzt ansteht</h2>
+  </div>
+  <div class="now-grid">
+    <div style="display:grid;gap:8px;min-width:0">
+      <h3>Aktuell im Depot</h3>
+      <div class="chips" id="now-active"></div>
+    </div>
+  </div>
+</section>
 
-    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-    <script>
-        const assets = [
-            { id: "gold_chart", ta: "gold_ta", sym: "TVC:GOLD" },
-            { id: "btc_chart", ta: "btc_ta", sym: "BINANCE:BTCUSD" },
-            { id: "eurchf_chart", ta: "eurchf_ta", sym: "FX_IDC:EURCHF" }
-        ];
+<section id="kurse">
+  <div class="sechead">
+    <div class="eyebrow">Aktuelle Kurse · Tag · Woche · Monat</div>
+    <h2>Kurse und Signale</h2>
+    <p class="lede">Kursveränderung seit gestern, seit einer Woche und seit einem Monat, dazu der Trend-Check aus Regel 1 und ein Stop-Vorschlag aus Regel 3. Das Signal verbindet den Fahrplan mit dem aktuellen Kurs.</p>
+  </div>
+  <div class="mkt" id="q-mkt"></div>
+  <div class="qbar">
+    <div class="seg" role="group" aria-label="Filter">
+      <button type="button" data-f="relevant" aria-pressed="true">Jetzt relevant</button>
+      <button type="button" data-f="active" aria-pressed="false">Im Depot</button>
+      <button type="button" data-f="all" aria-pressed="false">Alle</button>
+    </div>
+    <span class="stamp" id="q-stamp"></span>
+  </div>
+  <div class="tbl" id="qt"></div>
+  <p class="note">Kurse von Yahoo Finance, Schlusskurse bzw. letzter verfügbarer Kurs, nicht in Echtzeit. <strong>Trend</strong> = Kurs über der 20-Tage-Linie. <strong>Stop</strong> = Kurs minus 2× ATR(14); nach dem Kauf auf den Einstiegskurs beziehen. Aktualisieren: <code>python scripts/update_quotes.py</code> (läuft auf GitHub automatisch).</p>
+</section>
 
-        assets.forEach(asset => {
-            new TradingView.widget({
-                "container_id": asset.id,
-                "autosize": true,
-                "symbol": asset.sym,
-                "interval": "15",
-                "timezone": "Europe/Berlin",
-                "theme": "dark",
-                "style": "3",
-                "locale": "de",
-                "studies": [],
-                "disabled_features": ["volume_force_overlay", "create_volume_indicator_by_default"]
-            });
+<section>
+  <div class="sechead">
+    <div class="eyebrow">Zeitachse</div>
+    <h2>Was wann im Depot ist</h2>
+  </div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--bar-full)"></span> volle Position</span>
+    <span><span class="sw" style="background:var(--bar-half)"></span> halbe Position (rund um die Zahlen)</span>
+    <span><span class="sw" style="background:var(--sell);width:3px;height:14px"></span> Ausstieg</span>
+    <span><span class="dia" style="background:var(--earn)"></span> Quartalszahlen bestätigt</span>
+    <span><span class="dia"></span> Quartalszahlen geschätzt</span>
+  </div>
+  <div class="scroller"><div class="gantt" id="gantt"></div></div>
+</section>
 
-            const taScript = document.createElement('script');
-            taScript.src = "https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js";
-            taScript.async = true;
-            taScript.innerHTML = JSON.stringify({
-                "interval": "4h",
-                "width": "100%",
-                "isTransparent": true,
-                "height": "100%",
-                "symbol": asset.sym,
-                "showIntervalTabs": true,
-                "displayMode": "single",
-                "locale": "de",
-                "timezone": "Europe/Berlin",
-                "colorTheme": "dark"
-            });
-            document.getElementById(asset.ta).appendChild(taScript);
-        });
+<section>
+  <div class="sechead">
+    <div class="eyebrow">Regeln für jeden Trade</div>
+    <h2>Fünf Regeln</h2>
+  </div>
+  <div class="rules">
+    <div class="rule"><h3>Trend bestätigen</h3><p>Ist das Fenster offen, wird gekauft, sobald der Kurs über der 20-Tage-Linie schliesst oder ein höheres Tief bildet. Fehlt das Signal nach 2 Wochen, Trade auslassen.</p></div>
+    <div class="rule"><h3>Positionsgrösse</h3><p>Maximal 5–8 % des Depots pro Titel, insgesamt höchstens 40–50 % in saisonalen Trades.</p></div>
+    <div class="rule"><h3>Stop-Loss</h3><p>2× ATR (Tagesschwankung der letzten 14 Tage) unter dem Einstieg, Faustregel 7–10 %. Ab 8 % Gewinn Stop auf den Einstandskurs.</p></div>
+    <div class="rule"><h3>Quartalszahlen</h3><p>Am Anfang des Fensters: erst danach kaufen. Mitten im Fenster: vorher die Hälfte verkaufen. Am Ende: vorher ganz aussteigen.</p></div>
+    <div class="rule"><h3>Zeitstopp</h3><p>Am Ende des Fensters wird verkauft, auch wenn der Kurs gerade steigt. Ab dann spricht die Statistik nicht mehr für den Trade.</p></div>
+  </div>
+</section>
 
-        let lastChangePercent = 0;
-        let blinkInterval = null;
+</div>
 
-        async function updateGoldData() {
-            const keys = ["b1155d2ca1304357863d8d932cbd9c34", "356c97bb529f4a26b533de12474dd383"];
-            let data = null;
-            try {
-                // Attempt with the first key
-                let response = await fetch(`https://api.twelvedata.com/quote?symbol=XAU/USD&apikey=${keys[0]}`);
-                data = await response.json();
+<script src="quotes.js"></script>
+<script>
+(function(){
+  // Zeitraum der Achse
+  const START = d("2026-10-01"), END = d("2027-06-01");
+  function d(s){ const [y,m,dd]=s.split("-").map(Number); return Date.UTC(y,m-1,dd); }
+  const span = END - START;
+  const pct = t => ((t - START) / span * 100);
+  const fmt = t => { const x=new Date(t); return x.getUTCDate()+"."+(x.getUTCMonth()+1)+"."; };
 
-                // If rate limited (429), try the second key
-                if (data.code === 429) {
-                    //console.warn("Key 1 limited, switching to Key 2...");
-                    response = await fetch(`https://api.twelvedata.com/quote?symbol=XAU/USD&apikey=${keys[1]}`);
-                    data = await response.json();
-                }
+  // Segmente: [von, bis, "full"|"half"]
+  // Zahlen: [datum, "ok"|"cal"|"est", wer (optional), Hinweis (optional)]
+  const rows = [
+    {n:"AMZN", l:["Amazon","AMZN"], seg:[["2026-10-30","2026-12-12","full"]], earn:[["2026-10-29","ok","","nach Börsenschluss"]]},
+    {n:"AAPL", l:["Apple","AAPL"], seg:[["2026-11-03","2027-01-08","full"]], earn:[["2026-11-02","ok","","nach Börsenschluss"]]},
+    {n:"NVDA", l:["Nvidia","NVDA"], seg:[["2026-10-26","2026-11-16","full"],["2026-11-17","2026-12-04","half"]], earn:[["2026-11-18","cal","","nach Börsenschluss · vorher halbieren"]]},
+    {n:"AMD/ASML", l:["Halbleiter","AMD · ASML"], seg:[["2026-10-26","2026-12-04","full"]], earn:[["2026-11-04","est","AMD","erst danach kaufen"]]},
+    {n:"WMT", l:["Walmart","WMT"], seg:[["2026-10-26","2026-11-17","full"],["2026-11-18","2026-11-20","half"],["2026-11-21","2026-12-29","full"]], earn:[["2026-11-19","cal","","vor Börseneröffnung · vorher halbieren"]]},
+    {n:"COST", l:["Costco","COST"], seg:[["2026-10-28","2026-12-09","full"]], earn:[["2026-12-10","cal","","vorher ganz aussteigen"],["2027-03-04","est","","kein Trade, saisonal schwach"]]},
+    {n:"DE", l:["Landmaschinen","DE"], seg:[["2026-11-30","2027-02-16","full"],["2027-02-17","2027-02-22","half"],["2027-02-23","2027-04-30","full"]], earn:[["2026-11-25","est","","vorher nicht kaufen, reagiert heftig"],["2027-02-19","est","","vorher halbieren"],["2027-05-14","est","","vorher verkaufen"]]},
+    {n:"IWM", l:["Small Caps USA","IWM"], seg:[["2026-12-15","2027-03-05","full"]], earn:[]},
+    {n:"NEM/GOLD", l:["Goldminen","NEM · B"], seg:[["2026-12-21","2027-02-17","full"]], earn:[["2027-02-12","est","Barrick (B)","vorher verkaufen"],["2027-02-19","est","NEM","vorher verkaufen"]]},
+    {n:"NTR/CF", l:["Dünger","NTR · CF"], seg:[["2027-01-04","2027-02-15","full"],["2027-02-16","2027-02-22","half"],["2027-02-23","2027-05-05","full"]], earn:[["2027-02-18","est","","vorher halbieren, bei gutem Ausblick aufstocken"]]},
+    {n:"BKNG/DAL", l:["Reisen & Airlines","BKNG · DAL"], seg:[["2027-01-15","2027-02-21","full"],["2027-02-22","2027-02-26","half"],["2027-02-27","2027-04-15","full"]], earn:[["2027-01-13","est","DAL","Startsignal · erst danach kaufen"],["2027-02-24","est","BKNG","vorher halbieren"]]},
+    {n:"HD/LOW", l:["Baumärkte","HD · LOW"], seg:[["2027-01-25","2027-02-20","full"],["2027-02-21","2027-02-27","half"],["2027-02-28","2027-05-05","full"]], earn:[["2027-02-23","est","HD","vorher halbieren"],["2027-02-24","est","LOW","vorher halbieren"]]},
+    {n:"Öl/VLO", l:["Öl & Raffinerien","XOM · CVX · VLO"], seg:[["2027-02-02","2027-04-26","full"],["2027-04-27","2027-05-05","half"]], earn:[["2027-01-28","est","VLO","erst danach kaufen"],["2027-01-29","est","XOM/CVX","erst danach kaufen"],["2027-04-30","est","XOM/CVX","vorher halbieren"]]},
+    {n:"URTH", l:["MSCI World","URTH"], seg:[["2026-11-23","2027-04-30","full"]], earn:[]},
+    {n:"Defensiv", l:["Defensiv","XLV · XLP · CH-Titel"], seg:[["2027-05-05","2027-06-01","full"]], earn:[], open:true}
+  ];
+  const lab = r => r.l[0];                                     // "Goldminen"
+  const labT = r => r.l[0]===r.l[1] ? r.l[0] : `${r.l[0]} (${r.l[1].replace(/ · /g,", ")})`; // "Goldminen (NEM, B)"
+  // Marktereignisse: [datum, text, senkrechte Linie in der Zeitachse?]
+  const marketEvents = [
+    ["2026-11-03","US-Zwischenwahlen (Midterms)",true],
+    ["2026-11-26","Thanksgiving · US-Börse geschlossen"],
+    ["2026-11-27","Black Friday · verkürzter Handel",true],
+    ["2026-11-30","Cyber Monday"],
+    ["2026-12-09","Zinsentscheid US-Notenbank (Fed)"],
+    ["2026-12-18","Triple Witching (grosser Verfallstag)",true],
+    ["2026-12-25","Weihnachten · Börsen geschlossen"],
+    ["2027-01-01","Neujahr · Börsen geschlossen"],
+    ["2027-03-19","Triple Witching (grosser Verfallstag)",true],
+    ["2027-03-26","Karfreitag · Börsen geschlossen"]
+  ];
+  // Watchlist: kein belegtes saisonales Fenster, nur Kurse und Termine
+  const watchEvents = [
+    ["2026-12-14","est","Anthropic (ANT)","Ende der Quiet Period nach dem Börsengang · erste Analysten-Einstufungen"],
+    ["2027-01-04","est","Tesla (TSLA)","Auslieferungszahlen Q4"],
+    ["2027-01-04","","Zalando (ZAL)","Januar historisch schwach: 9 von 12 Jahren im Minus · nicht im Januar kaufen"],
+    ["2027-01-27","est","Tesla (TSLA)","Quartalszahlen Q4"],
+    ["2027-03-04","est","Zalando (ZAL)","Jahreszahlen 2026 und Ausblick"],
+    ["2027-05-18","est","Anthropic (ANT)","Ende der Haltefrist (Lock-up) · Altaktionäre dürfen verkaufen"]
+  ];
+  const ST = {ok:["t-ok","bestätigt"],cal:["t-cal","Kalender"],est:["t-est","geschätzt"]};
 
-                // Basic validation
-                if (!data || data.status === "error" || !data.close) {
-                    console.error("API Error:", data?.message || "Invalid Data");
-                    return;
-                }
+  // Gantt zeichnen
+  const g = document.getElementById("gantt");
+  const months = ["Okt","Nov","Dez","Jan","Feb","Mär","Apr","Mai"];
+  let head = '<div class="g-row g-head"><div class="g-label"></div><div class="g-track">';
+  months.forEach((m,i)=>{
+    const y = i<3 ? 2026 : 2027, mo = (9+i)%12;
+    head += `<div class="m-tick" style="left:${pct(Date.UTC(y,mo,1))}%">${m}${i===0||i===3?" "+String(y).slice(2):""}</div>`;
+  });
+  head += '</div></div>';
+  let body = "";
+  rows.forEach(r=>{
+    let t = "";
+    r.seg.forEach(([a,b,k],i)=>{
+      const L=pct(d(a)), W=pct(d(b))-L;
+      const isOpen = r.open && i===r.seg.length-1;
+      t += `<div class="bar ${k}${isOpen?" open":""}" style="left:${L}%;width:${W}%" title="${labT(r)}: ${fmt(d(a))}–${fmt(d(b))} ${k==="half"?"halbe Position":"volle Position"}"></div>`;
+    });
+    if(!r.open){
+      const last = r.seg[r.seg.length-1][1];
+      t += `<div class="exit" style="left:calc(${pct(d(last))}% - 1px)" title="Ausstieg ${labT(r)} ${fmt(d(last))}"></div>`;
+    }
+    r.earn.forEach(([e,st,who])=>{
+      t += `<div class="earn${st==="ok"?" ok":""}" style="left:${pct(d(e))}%" title="Quartalszahlen ${who||r.n} ${fmt(d(e))} (${ST[st][1]})"></div>`;
+    });
+    body += `<div class="g-row"><div class="g-label">${lab(r)}${r.l[1]!==r.l[0]?`<small>${r.l[1]}</small>`:""}</div><div class="g-track">${t}</div></div>`;
+  });
+  g.innerHTML = head + body;
 
-                const price = parseFloat(data.close).toFixed(2);
-                const percent = parseFloat(data.percent_change);
-                lastChangePercent = percent;
+  // Senkrechte Linien für Marktereignisse und heute, über die ganze Höhe der Tracks
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:absolute;top:12px;bottom:16px;left:184px;right:16px;pointer-events:none";
+  marketEvents.filter(m=>m[2]).forEach(([e,l])=>{
+    overlay.insertAdjacentHTML("beforeend", `<div class="vline" style="left:${pct(d(e))}%" title="${l}"></div>`);
+  });
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  if(today>=START && today<=END){
+    overlay.insertAdjacentHTML("beforeend", `<div class="today" style="left:${pct(today)}%"><b>heute</b></div>`);
+  }
+  g.appendChild(overlay);
 
-                document.getElementById('goldPrice').innerText = `$${price}`;
-                const percentEl = document.getElementById('goldPercent');
-                const sign = percent >= 0 ? "+" : "";
-                percentEl.innerText = `${sign}${percent.toFixed(2)}%`;
-                percentEl.style.color = percent >= 0 ? "#22ab94" : "#f23645";
+  const DAY = 864e5;
+  // Heute-Panel: aktive Positionen und nächste Ereignisse
+  document.getElementById("now-date").textContent = "Stand " + fmt(today) + now.getFullYear();
+  const active = rows.filter(r=>r.seg.some(([a,b])=>today>=d(a)&&today<=d(b)));
+  const act = document.getElementById("now-active");
+  const Q = (window.QUOTES && window.QUOTES.quotes) || [];
+  const nf = (v,dig=2) => v==null ? "–" : v.toLocaleString("de-CH",{minimumFractionDigits:dig,maximumFractionDigits:dig});
+  const pf = v => v==null ? '<span style="color:var(--muted)">–</span>'
+    : `<span class="${v>0?"up":v<0?"dn":""}">${v>0?"+":v<0?"−":""}${nf(Math.abs(v),1)} %</span>`;
+  const avg = a => { const x=a.filter(v=>v!=null); return x.length ? x.reduce((s,v)=>s+v,0)/x.length : null; };
+  act.innerHTML = active.length
+    ? active.map(r=>{
+        const s=r.seg.find(([a,b])=>today>=d(a)&&today<=d(b));
+        const qs=Q.filter(q=>q.group===r.n);
+        const day=qs.length?avg(qs.map(q=>q.day)):null;
+        return `<span class="chip">${lab(r)}${s[2]==="half"?" · halb":""}${day!=null?" "+pf(day):""}</span>`;
+      }).join("")
+    : '<span style="color:var(--muted);font-size:.92rem">Noch keine Position offen. Die ersten Einstiege folgen in den nächsten Tagen.</span>';
 
-                checkThreshold();
-            } catch (e) { console.error("API Fehler"); }
-        }
+  // ── Wichtige Termine ───────────────────────────────────────────────
+  const ev = []; // {t, k, txt, st, note}
+  // Handelstag: Kauf am Wochenende -> Montag, Halbieren/Verkauf -> Freitag davor
+  const wk = (t,fwd) => { let x=t; while([0,6].includes(new Date(x).getUTCDay())) x += fwd?DAY:-DAY; return x; };
+  rows.forEach(r=>{
+    r.seg.forEach(([a,b,k],i)=>{
+      const prev = r.seg[i-1];
+      if(i===0) ev.push({t:wk(d(a),1),k:"buy",txt:`${labT(r)} kaufen`,note:"Fenster öffnet · Trend bestätigen"});
+      else if(k==="half") ev.push({t:wk(d(a),0),k:"half",txt:`${labT(r)} halbieren`,note:"vor den Quartalszahlen"});
+      else if(prev && prev[2]==="half") ev.push({t:wk(d(a),1),k:"buy",txt:`${labT(r)} wieder aufstocken`,note:"wenn die Reaktion auf die Zahlen gut ist"});
+      if(i===r.seg.length-1 && !r.open) ev.push({t:wk(d(b),0),k:"sell",txt:`${labT(r)} verkaufen`,note:"Zeitstopp"});
+    });
+    r.earn.forEach(([e,st,who,note])=>ev.push({t:d(e),k:"earn",txt:`Quartalszahlen ${who||r.n}`,st,note}));
+  });
+  marketEvents.forEach(([e,l])=>ev.push({t:d(e),k:"mkt",txt:l}));
+  watchEvents.forEach(([e,st,who,txt])=>ev.push({t:d(e),k:st?"earn":"mkt",txt:`${who}: ${txt}`,st,note:"Watchlist"}));
+  const order = {mkt:0,earn:1,sell:2,half:3,buy:4};
+  ev.sort((a,b)=>a.t-b.t || order[a.k]-order[b.k]);
+  const KL = {buy:["act buy","Kaufen"],half:["act half","Halbieren"],sell:["act sell","Verkaufen"],earn:["","Zahlen"],mkt:["","Markt"]};
+  const WD = ["So","Mo","Di","Mi","Do","Fr","Sa"], MN = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+  const tl = document.getElementById("t-list"), tMore = document.getElementById("t-more");
+  let tFilter = "all", tAll = false;
+  function renderDates(){
+    let list = ev.filter(e=>e.t>=today);
+    if(tFilter==="trade") list = list.filter(e=>["buy","half","sell"].includes(e.k));
+    if(tFilter==="earn") list = list.filter(e=>e.k==="earn");
+    if(tFilter==="mkt") list = list.filter(e=>e.k==="mkt");
+    const limit = today + 30*DAY, total = list.length;
+    if(!tAll) list = list.filter(e=>e.t<=limit);
+    let html = "", month = -1;
+    list.forEach(e=>{
+      const x = new Date(e.t), days = Math.round((e.t-today)/DAY);
+      if(x.getUTCMonth()!==month){ month = x.getUTCMonth(); html += `<li class="t-m">${MN[month]} ${x.getUTCFullYear()}</li>`; }
+      const cd = days===0?"heute":days===1?"morgen":`in ${days} T.`;
+      html += `<li class="${days<=7?"soon":""}"><span class="mono t-d">${WD[x.getUTCDay()]} ${fmt(e.t)}</span><span class="mono t-c">${cd}</span>`+
+        `<span class="t-k ${KL[e.k][0]}">${KL[e.k][1]}</span>`+
+        `<span class="t-x"><b>${e.txt}</b>${e.st?` <span class="tag ${ST[e.st][0]}">${ST[e.st][1]}</span>`:""}${e.note?`<small>${e.note}</small>`:""}</span></li>`;
+    });
+    tl.innerHTML = html || '<li><span class="t-x" style="grid-column:1/-1;color:var(--muted)">Keine Termine in den nächsten 30 Tagen.</span></li>';
+    const hidden = total - list.length;
+    tMore.hidden = !tAll && hidden===0;
+    tMore.textContent = tAll ? "Nur nächste 30 Tage" : `Alle Termine bis Mai anzeigen (+${hidden})`;
+  }
+  document.querySelectorAll("#termine .seg button").forEach(b=>b.addEventListener("click",()=>{
+    tFilter=b.dataset.f;
+    document.querySelectorAll("#termine .seg button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+    renderDates();
+  }));
+  tMore.addEventListener("click",()=>{ tAll=!tAll; renderDates(); });
 
-        function checkThreshold() {
-            const threshold = parseFloat(document.getElementById('thresholdInput').value);
-            const checkBelow = document.getElementById('checkBelowToggle').checked;
-            const sign = lastChangePercent >= 0 ? "+" : "";
-            if (threshold == 0) { stopBlinking(sign, lastChangePercent); return; }
-            if ((lastChangePercent >= threshold && !checkBelow) || (lastChangePercent <= threshold && checkBelow)) { if (!blinkInterval) startBlinking(); }
-            else { stopBlinking(sign, lastChangePercent); }
-        }
+  // ── Kurse und Signale ──────────────────────────────────────────────
+  const qt = document.getElementById("qt"), stamp = document.getElementById("q-stamp");
+  const status = r => {
+    if(r==="watch") return {k:"watch"};
+    if(!r) return {k:"mkt"};
+    const first = d(r.seg[0][0]), last = d(r.seg[r.seg.length-1][1]);
+    const cur = r.seg.find(([a,b])=>today>=d(a)&&today<=d(b));
+    if(cur) return {k:"in", half:cur[2]==="half", start:first, toExit: r.open?null:Math.round((last-today)/DAY), since:Math.round((today-first)/DAY)};
+    if(today<first) return {k:"pre", toEntry:Math.round((first-today)/DAY), start:first};
+    return {k:"done"};
+  };
+  const signal = (q,st) => {
+    const trend = q.sma20!=null ? q.price>q.sma20 : null;
+    if(st.k==="pre"){
+      if(st.toEntry>14) return ['st',`Einstieg in ${st.toEntry} T.`];
+      return trend ? ['act buy',`Fenster bald offen · Trend ok`] : ['act half',`in ${st.toEntry} T. · Trend abwarten`];
+    }
+    if(st.k==="in"){
+      if(st.toExit!=null && st.toExit<=7) return ['act sell',`Verkaufen in ${st.toExit} T.`];
+      if(st.since<=14) return trend ? ['act buy','Kaufsignal: über 20T-Linie'] : ['act half','Noch kein Signal · warten'];
+      return trend ? ['act buy',st.half?'Halbe Position halten':'Halten'] : ['act sell','Unter 20T-Linie · Stop prüfen'];
+    }
+    if(st.k==="done") return ['st','Fenster vorbei'];
+    if(st.k==="watch") return trend==null ? ['st','zu wenig Kursdaten'] : trend ? ['act buy','Trend intakt'] : ['act half','Unter 20T-Linie'];
+    return ['st',''];
+  };
+  const spark = (pts,up) => {
+    if(!pts || pts.length<2) return "";
+    const w=84,h=24,mn=Math.min(...pts),mx=Math.max(...pts),rg=(mx-mn)||1;
+    const p=pts.map((v,i)=>`${(i/(pts.length-1)*w).toFixed(1)},${(h-2-(v-mn)/rg*(h-4)).toFixed(1)}`).join(" ");
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${p}" fill="none" stroke="var(${up?"--buy":"--sell"})" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+  };
+  const rowOf = n => rows.find(r=>r.n===n);
 
-        function startBlinking() {
-            if (blinkInterval) return;
-            let show = true;
-            blinkInterval = setInterval(() => {
-                const sign = lastChangePercent >= 0 ? "+" : "";
-                const title = `XAU ${sign}${lastChangePercent.toFixed(2)}%`;
-                document.title = show ? `⚠️ ${title}` : `_ ${title}`;
-                show = !show;
-            }, 500);
-        }
+  // Marktlage (S&P 500) – volle oder halbe Positionen
+  const spx = Q.find(q=>q.symbol==="^GSPC");
+  const mkt = document.getElementById("q-mkt");
+  if(spx){
+    const o200 = spx.sma200!=null && spx.price>spx.sma200, o50 = spx.sma50!=null && spx.price>spx.sma50;
+    mkt.innerHTML = `<span>S&amp;P 500 <b>${nf(spx.price,0)}</b></span>
+      <span>Tag ${pf(spx.day)}</span><span>Woche ${pf(spx.week)}</span><span>Monat ${pf(spx.month)}</span>
+      <span class="act ${o50?"buy":"half"}">${o50?"über":"unter"} 50-Tage-Linie</span>
+      <span class="act ${o200?"buy":"sell"}">${o200?"über 200-Tage-Linie · volle Positionen ok":"unter 200-Tage-Linie · nur halbe Positionen"}</span>`;
+  } else mkt.hidden = true;
 
-        function stopBlinking(sign, percent) {
-            if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
-            document.title = `XAU ${sign}${percent.toFixed(2)}%`;
-        }
+  let filter = "relevant", sortKey = null, sortDir = "desc";
+  function renderQuotes(){
+    if(!Q.length){
+      qt.innerHTML = '<p style="padding:16px;margin:0;color:var(--muted)">Keine Kursdaten gefunden. <code>python scripts/update_quotes.py</code> ausführen, damit <code>quotes.js</code> entsteht.</p>';
+      return;
+    }
+    let list = Q.filter(q=>q.group!=="Markt").map(q=>{ const r=q.group==="Watchlist"?"watch":rowOf(q.group), st=status(r); return {q,r,st,sig:signal(q,st)}; });
+    if(filter==="active") list = list.filter(x=>x.st.k==="in");
+    if(filter==="relevant") list = list.filter(x=>x.st.k==="in" || x.st.k==="watch" || (x.st.k==="pre" && x.st.toEntry<=30));
+    let html = `<table><thead><tr><th>Titel</th><th class="n">Kurs</th>`+
+      ["day:Tag","week:Woche","month:Monat"].map(s=>{const [k,l]=s.split(":");return `<th class="n"><button type="button" data-k="${k}"${sortKey===k?` data-dir="${sortDir}"`:""}>${l}</button></th>`;}).join("")+
+      `<th>30 Tage</th><th class="n">20T-Linie</th><th class="n">Stop (2×ATR)</th><th>Fahrplan</th><th>Signal</th></tr></thead><tbody>`;
+    const line = ({q,st,sig})=>{
+      const stop = q.atr14!=null ? q.price-2*q.atr14 : null;
+      const plan = st.k==="in" ? (st.half?"im Depot · halb":"im Depot") : st.k==="pre" ? `ab ${fmt(st.start)}` : st.k==="done"?"verkauft":st.k==="watch"?"Watchlist":"";
+      const cur = q.currency==="USD"?"$":q.currency==="CHF"?"CHF ":q.currency==="EUR"?"€":(q.currency||"")+" ";
+      return `<tr><td class="nm"><span class="mono" style="font-weight:600">${q.symbol}</span><small>${q.name}</small></td>
+        <td class="n">${cur}${nf(q.price)}</td><td class="n">${pf(q.day)}</td><td class="n">${pf(q.week)}</td><td class="n">${pf(q.month)}</td>
+        <td>${spark(q.spark,(q.month ?? q.week ?? q.day ?? 0)>=0)}</td>
+        <td class="n">${q.sma20==null?"–":`<span class="${q.price>q.sma20?"up":"dn"}">${q.price>q.sma20?"▲":"▼"}</span> ${nf(q.sma20)}`}</td>
+        <td class="n">${stop==null?"–":`${nf(stop)} <small style="color:var(--muted)">(−${nf(2*q.atr14/q.price*100,1)} %)</small>`}</td>
+        <td class="st">${plan}${q.group!==q.symbol && q.group!=="Watchlist" ? `<small style="display:block">Gruppe ${lab(rowOf(q.group))}</small>` : ""}</td><td class="sig"><span class="${sig[0]}">${sig[1]}</span></td></tr>`;
+    };
+    if(sortKey){
+      list.sort((a,b)=>((a.q[sortKey]??-1e9)-(b.q[sortKey]??-1e9))*(sortDir==="asc"?1:-1));
+      html += list.map(line).join("");
+    } else {
+      // gruppiert nach Status im Fahrplan, innerhalb nach Datum
+      const sections = [
+        ["Im Depot", x=>x.st.k==="in", x=>x.st.toExit ?? 1e9],
+        ["Nächste Einstiege", x=>x.st.k==="pre", x=>x.st.toEntry],
+        ["Watchlist · kein saisonales Fenster", x=>x.st.k==="watch", ()=>0],
+        ["Fenster vorbei", x=>x.st.k==="done", ()=>0]
+      ];
+      sections.forEach(([title,test,key])=>{
+        const items = list.filter(test).sort((a,b)=>key(a)-key(b));
+        if(!items.length) return;
+        html += `<tr class="grp"><td colspan="10">${title}</td></tr>` + items.map(line).join("");
+      });
+    }
+    if(!list.length) html += '<tr><td colspan="10" style="color:var(--muted)">Keine Titel in diesem Filter.</td></tr>';
+    qt.innerHTML = html + "</tbody></table>";
+    qt.querySelectorAll("th button").forEach(b=>b.addEventListener("click",()=>{
+      const k=b.dataset.k;
+      if(sortKey!==k){ sortKey=k; sortDir="desc"; } else if(sortDir==="desc") sortDir="asc"; else sortKey=null;
+      renderQuotes();
+    }));
+  }
+  document.querySelectorAll("#kurse .seg button").forEach(b=>b.addEventListener("click",()=>{
+    filter=b.dataset.f;
+    document.querySelectorAll("#kurse .seg button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+    renderQuotes();
+  }));
+  renderQuotes();
+  renderDates();
+  if(window.QUOTES){
+    const u = new Date(window.QUOTES.updated*1000), ageDays = (Date.now()-u)/DAY;
+    stamp.textContent = "Kurse vom " + u.toLocaleString("de-CH",{day:"numeric",month:"numeric",year:"numeric",hour:"2-digit",minute:"2-digit"})
+      + (window.QUOTES.failed && window.QUOTES.failed.length ? " · fehlend: "+window.QUOTES.failed.join(", ") : "");
+    if(ageDays>3){ stamp.classList.add("old"); stamp.textContent += " · veraltet"; }
+  }
 
-        const tInput = document.getElementById('thresholdInput');
-        tInput.addEventListener('input', () => {
-            localStorage.setItem('goldThreshold', tInput.value);
-            checkThreshold();
-        });
-
-        const checkBelowToggle = document.getElementById('checkBelowToggle');
-        checkBelowToggle.addEventListener('change', () => {
-            localStorage.setItem('checkBelow', checkBelowToggle.checked);
-            checkThreshold();
-        });
-
-        const saved = localStorage.getItem('goldThreshold');
-        if (saved) tInput.value = saved;
-        
-        const savedBlinkState = localStorage.getItem('checkBelow');
-        if (savedBlinkState !== null) checkBelowToggle.checked = savedBlinkState === 'true';
-
-        updateGoldData();
-        setInterval(updateGoldData, 60000);
-    </script>
-</body>
+})();
+</script>
 
 </html>
