@@ -2,11 +2,13 @@ name: Kurse aktualisieren
 
 on:
   schedule:
-    # Mo–Fr: zur Eröffnung in Zürich, mehrmals während der US-Börsenzeit und nach US-Börsenschluss (UTC)
-    - cron: "15 8 * * 1-5"
-    - cron: "0 15,17,19 * * 1-5"
-    - cron: "30 21 * * 1-5"
-  workflow_dispatch: {}
+    # Mo–Fr: zur Eröffnung in Zürich (09:15 MEZ / 10:15 MESZ)
+    - cron: '17 8 * * 1-5'
+    # Mo–Fr: während der US-Börsenzeit (16:13, 18:13, 20:13 MEZ)
+    - cron: '13 15,17,19 * * 1-5'
+    # Mo–Fr: nach US-Börsenschluss (22:33 MEZ)
+    - cron: '33 21 * * 1-5'
+  workflow_dispatch:
 
 permissions:
   contents: write
